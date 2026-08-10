@@ -97,6 +97,8 @@ class HotelModelTests(unittest.TestCase):
     def test_hotel_query_validation_and_nights(self) -> None:
         q = HotelQuery("  Praga  ", date(2026, 12, 4), date(2026, 12, 8))
         self.assertEqual(q.location, "Praga")
+        q2 = HotelQuery("New   York", date(2026, 12, 4), date(2026, 12, 8))
+        self.assertEqual(q2.location, "New York")
         self.assertEqual(q.nights, 4)
         self.assertTrue(q.free_cancellation)
         with self.assertRaises(ValueError):
@@ -218,6 +220,29 @@ class HotelModelTests(unittest.TestCase):
                 raw_count=1,
                 eligible_count=5,
                 offers=(offer,),
+            )
+        offer_two = HotelOffer(
+            title="Hotel Two",
+            address="Praga 2",
+            total_price="150 €",
+            total_price_eur=150.0,
+            rating=None,
+            rating_score=None,
+            details="",
+            cancellation_evidence=CancellationEvidence.UNKNOWN,
+            property_type_evidence=PropertyTypeEvidence.UNKNOWN,
+            bedrooms=None,
+            bathrooms=None,
+            beds=None,
+            link=None,
+        )
+        with self.assertRaises(ValueError):
+            HotelQuerySuccess(
+                query=query,
+                applied=applied,
+                raw_count=10,
+                eligible_count=1,
+                offers=(offer, offer_two),
             )
 
     def test_hotel_query_result_variants_json(self) -> None:

@@ -83,10 +83,7 @@ def parse_rating(rating_text: str | None) -> float | None:
     for pattern in label_patterns:
         m = re.search(pattern, text, flags=re.IGNORECASE)
         if m:
-            try:
-                score = float(m.group(1).replace(",", "."))
-            except ValueError:
-                continue
+            score = float(m.group(1).replace(",", "."))
             if 0.0 <= score <= 10.0:
                 return score
             return None
@@ -97,13 +94,12 @@ _FREE_CANCEL_PATTERNS = (
     r"cancelaci[oó]n\s+gratuita",
     r"cancelaci[oó]n\s+gratis",
     r"free\s+cancell?ation",
-    r"free\s+cancel",
 )
 
 _NON_REFUNDABLE_PATTERNS = (
     r"no\s+reembolsable",
     r"non[\s-]?refundable",
-    r"no\s+cancell?ation",
+    r"no\s+cancell?ation(?!\s+(?:fees?|charges?|costs?))",
     r"no\s+se\s+puede\s+cancelar",
 )
 
@@ -162,7 +158,6 @@ def parse_unit_hints(card_text: str | None) -> dict[str, int | None]:
     for pat in (
         r"(\d+)\s*baños?",
         r"(\d+)\s*bathrooms?",
-        r"(\d+)\s*bathroom",
     ):
         m = re.search(pat, text)
         if m:
@@ -171,9 +166,8 @@ def parse_unit_hints(card_text: str | None) -> dict[str, int | None]:
 
     for pat in (
         r"(\d+)\s*dormitorios?",
-        r"(\d+)\s*habitaciones?",
+        r"(\d+)\s*habitaci[oó]n(?:es)?",
         r"(\d+)\s*bedrooms?",
-        r"(\d+)\s*bedroom",
     ):
         m = re.search(pat, text)
         if m:

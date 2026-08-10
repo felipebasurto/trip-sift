@@ -98,6 +98,10 @@ class ParserTests(unittest.TestCase):
                 "Cancelación gratuita. No reembolsable",
                 CancellationEvidence.NON_REFUNDABLE,
             ),
+            (
+                "Free cancellation. No cancellation fees.",
+                CancellationEvidence.FREE,
+            ),
             ("", CancellationEvidence.UNKNOWN),
             (None, CancellationEvidence.UNKNOWN),
             ("Precio por noche", CancellationEvidence.UNKNOWN),
@@ -132,6 +136,10 @@ class ParserTests(unittest.TestCase):
             (
                 "2 bedrooms · 1 bathroom · 3 beds",
                 {"bedrooms": 2, "bathrooms": 1, "beds": 3},
+            ),
+            (
+                "1 habitación · 1 baño",
+                {"bedrooms": 1, "bathrooms": 1, "beds": None},
             ),
             ("", {"bedrooms": None, "bathrooms": None, "beds": None}),
         ]
