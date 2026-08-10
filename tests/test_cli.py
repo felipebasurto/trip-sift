@@ -105,6 +105,26 @@ class CliTests(unittest.TestCase):
         with patch("trip_sift.cli.search_flights", return_value=report):
             self.assertEqual(main(["flights", "MAD-BCN:2026-09-01"]), 2)
 
+    def test_flights_help_preserves_examples_epilog(self) -> None:
+        buffer = io.StringIO()
+        with patch("sys.stdout", buffer):
+            code = main(["flights", "--help"])
+        self.assertEqual(code, 0)
+        help_text = buffer.getvalue()
+        self.assertIn("Examples:", help_text)
+        self.assertIn("trip-sift flights MAD-BCN", help_text)
+
+    def test_root_help_preserves_flight_examples_and_lists_subcommands(self) -> None:
+        buffer = io.StringIO()
+        with patch("sys.stdout", buffer):
+            code = main(["--help"])
+        self.assertEqual(code, 0)
+        help_text = buffer.getvalue()
+        self.assertIn("flights", help_text)
+        self.assertIn("hotels", help_text)
+        self.assertIn("Examples:", help_text)
+        self.assertIn("trip-sift flights MAD-BCN", help_text)
+
 
 def _sample_hotel_report(
     *,

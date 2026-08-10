@@ -225,6 +225,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Search Google Flights and Booking.com locally (EUR, es locale)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=FLIGHTS_EXAMPLES,
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
