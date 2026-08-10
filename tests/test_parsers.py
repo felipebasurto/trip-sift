@@ -24,6 +24,7 @@ PRICE_CASES = [
     ("€ 99", 99.0),
     ("120.50", 120.5),
     ("-20 €", -20.0),
+    ("Ryanair - 120 €", 120.0),
     ("", None),
     ("gratis", None),
 ]
@@ -79,6 +80,8 @@ class ParserTests(unittest.TestCase):
             ("9", 9.0),
             ("Valoración 7,2", 7.2),
             ("Rating: 10.0", 10.0),
+            ("8,7 Fabuloso", 8.7),
+            ("Fabuloso 8,7", 8.7),
             ("", None),
             (None, None),
             ("2 dormitorios 3 camas", None),

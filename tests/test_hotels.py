@@ -13,9 +13,12 @@ import trip_sift.hotels as hotels_module
 from trip_sift.hotels import (
     BACKOFF_BASE_SECONDS,
     BACKOFF_JITTER_SECONDS,
+    EMPTY_STATE_SELECTORS,
     MAX_ATTEMPTS,
+    PROPERTY_CARD_SELECTOR,
     REQUEST_DELAY_SECONDS,
     REQUEST_JITTER_SECONDS,
+    _BookingHotelsSource,
     _HotelPage,
     _RawHotelCard,
     _is_eligible,
@@ -70,6 +73,132 @@ class FakeSource:
         self.closed = True
 
 
+class FakeElement:
+    def __init__(self, text: str, href: str | None = None) -> None:
+        self.text = text
+        self.href = href
+
+    def inner_text(self) -> str:
+        return self.text
+
+    def get_attribute(self, name: str) -> str | None:
+        return self.href if name == "href" else None
+
+
+class FakeProviderCard:
+    def __init__(
+        self,
+        elements: dict[str, FakeElement],
+        details: str,
+    ) -> None:
+        self.elements = elements
+        self.details = details
+
+    def query_selector(self, selector: str) -> FakeElement | None:
+        return self.elements.get(selector)
+
+    def inner_text(self) -> str:
+        return self.details
+
+
+class FakeLocator:
+    def __init__(
+        self,
+        *,
+        count: int = 0,
+        visible: bool = False,
+    ) -> None:
+        self._count = count
+        self._visible = visible
+
+    @property
+    def first(self) -> "FakeLocator":
+        return self
+
+    def count(self) -> int:
+        return self._count
+
+    def is_visible(self) -> bool:
+        return self._visible
+
+    def click(self, *, timeout: int) -> None:
+        return None
+
+    def wait_for(self, *, timeout: int) -> None:
+        return None
+
+
+class FakePage:
+    def __init__(
+        self,
+        cards: Sequence[FakeProviderCard] = (),
+        empty_selectors: Sequence[str] = (),
+    ) -> None:
+        self.cards = list(cards)
+        self.empty_selectors = set(empty_selectors)
+        self.closed = False
+
+    def goto(self, url: str, *, wait_until: str, timeout: int) -> None:
+        return None
+
+    def locator(self, selector: str) -> FakeLocator:
+        result_selector = ", ".join(
+            (PROPERTY_CARD_SELECTOR,) + EMPTY_STATE_SELECTORS
+        )
+        if selector == result_selector:
+            return FakeLocator(count=1, visible=True)
+        visible = selector in self.empty_selectors
+        return FakeLocator(count=int(visible), visible=visible)
+
+    def query_selector_all(self, selector: str) -> List[FakeProviderCard]:
+        return self.cards if selector == PROPERTY_CARD_SELECTOR else []
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeContext:
+    def __init__(
+        self,
+        page: FakePage,
+        *,
+        storage_error: Exception | None = None,
+    ) -> None:
+        self.page = page
+        self.storage_error = storage_error
+        self.closed = False
+
+    def new_page(self) -> FakePage:
+        return self.page
+
+    def storage_state(self, *, path: str) -> None:
+        if self.storage_error is not None:
+            raise self.storage_error
+        Path(path).write_text('{"cookies": []}', encoding="utf-8")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeBrowser:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakePlaywright:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
 def query(**overrides: object) -> HotelQuery:
     values = {
         "location": "Lisboa",
@@ -102,6 +231,31 @@ def card(
         details=details,
         link=link,
     )
+
+
+def provider_card(
+    *,
+    title: str | None = "Casa Azul",
+    total_price: str | None = "400 €",
+    rating: str | None = "8,7 Fabuloso\n1.234 comentarios",
+    address: str | None = "Centro, Lisboa",
+    link: str | None = "/hotel/pt/casa-azul.html?aid=123#reviews",
+    details: str = "Cancelación gratis · Apartamento entero",
+) -> FakeProviderCard:
+    elements = {}
+    if title is not None:
+        elements['[data-testid="title"]'] = FakeElement(title)
+    if total_price is not None:
+        elements['[data-testid="price-and-discounted-price"]'] = FakeElement(
+            total_price
+        )
+    if rating is not None:
+        elements['[data-testid="review-score"]'] = FakeElement(rating)
+    if address is not None:
+        elements['[data-testid="address-link"]'] = FakeElement(address)
+    if link is not None:
+        elements['a[data-testid="title-link"]'] = FakeElement("", href=link)
+    return FakeProviderCard(elements, details)
 
 
 def offer(
@@ -210,6 +364,17 @@ class PureHotelLogicTests(unittest.TestCase):
         assert normalized is not None
         self.assertIsNone(normalized.rating_score)
 
+    def test_normalize_card_parses_realistic_dedicated_rating_text(self) -> None:
+        normalized = _normalize_card(
+            card(
+                rating="8,7 Fabuloso",
+                details="2 dormitorios · Puntuación del barrio: 4,1",
+            )
+        )
+
+        assert normalized is not None
+        self.assertEqual(normalized.rating_score, 8.7)
+
     def test_invalid_prices_are_dropped(self) -> None:
         for price in ("", "consultar", "0 €", "-20 €"):
             with self.subTest(price=price):
@@ -246,6 +411,12 @@ class PureHotelLogicTests(unittest.TestCase):
                 strict_query,
             )
         )
+        self.assertTrue(
+            _is_eligible(
+                offer(cancellation=CancellationEvidence.NON_REFUNDABLE),
+                query(free_cancellation=False),
+            )
+        )
 
     def test_rank_deduplicates_normalized_identity_and_sorts_ties(self) -> None:
         ranked = _rank_offers(
@@ -269,6 +440,29 @@ class PureHotelLogicTests(unittest.TestCase):
 
 
 class HotelOrchestrationTests(unittest.TestCase):
+    def test_failure_then_success_resets_once(self) -> None:
+        source = FakeSource(
+            [
+                RuntimeError("temporary"),
+                _HotelPage(cards=(card(title="Recovered"),)),
+            ]
+        )
+        sleeps: List[float] = []
+
+        report = _run_search(
+            (query(),),
+            top=8,
+            source=source,
+            sleep=sleeps.append,
+            random_gen=Random(3),
+            now=lambda: datetime(2026, 8, 10, 10, 0, 0),
+        )
+
+        self.assertIsInstance(report.queries[0], HotelQuerySuccess)
+        self.assertEqual(source.reset_calls, 1)
+        self.assertEqual(len(source.fetch_calls), 2)
+        self.assertEqual(len(sleeps), 1)
+
     def test_retries_same_applied_filters_then_returns_typed_failure(self) -> None:
         hotel_query = query(entire_home=True)
         source = FakeSource([RuntimeError("blocked")] * MAX_ATTEMPTS)
@@ -343,6 +537,7 @@ class HotelOrchestrationTests(unittest.TestCase):
         assert isinstance(result, HotelQuerySuccess)
         self.assertEqual((result.raw_count, result.eligible_count), (0, 0))
         self.assertEqual(result.offers, ())
+        self.assertEqual(source.reset_calls, 0)
 
     def test_counts_use_raw_cards_and_deduplicated_eligible_offers(self) -> None:
         source = FakeSource(
@@ -373,6 +568,54 @@ class HotelOrchestrationTests(unittest.TestCase):
         self.assertEqual(result.eligible_count, 2)
         self.assertEqual([row.title for row in result.offers], ["Cheap"])
         self.assertEqual(source.fetch_calls[0][2], 24)
+
+    def test_run_search_uses_rank_offers_for_full_eligible_count(self) -> None:
+        source = FakeSource(
+            [
+                _HotelPage(
+                    cards=(
+                        card(title="One", total_price="100 €"),
+                        card(title="One", total_price="100 €"),
+                        card(title="Two", total_price="200 €"),
+                    )
+                )
+            ]
+        )
+
+        with patch(
+            "trip_sift.hotels._rank_offers",
+            wraps=_rank_offers,
+        ) as rank_offers:
+            report = _run_search(
+                (query(),),
+                top=1,
+                source=source,
+                sleep=lambda _: None,
+                random_gen=Random(0),
+                now=lambda: datetime(2026, 8, 10, 10, 0, 0),
+            )
+
+        result = report.queries[0]
+        assert isinstance(result, HotelQuerySuccess)
+        rank_offers.assert_called_once()
+        self.assertEqual(result.eligible_count, 2)
+        self.assertEqual([row.title for row in result.offers], ["One"])
+
+    def test_run_search_validates_without_fetching(self) -> None:
+        source = FakeSource([])
+        kwargs = {
+            "source": source,
+            "sleep": lambda _: None,
+            "random_gen": Random(0),
+            "now": lambda: datetime(2026, 8, 10, 10, 0, 0),
+        }
+
+        with self.assertRaises(ValueError):
+            _run_search((), top=8, **kwargs)
+        with self.assertRaises(ValueError):
+            _run_search((query(),), top=0, **kwargs)
+
+        self.assertEqual(source.fetch_calls, [])
 
     def test_search_validates_before_source_construction(self) -> None:
         with patch("trip_sift.hotels._BookingHotelsSource") as source_class:
@@ -427,6 +670,146 @@ class HotelOrchestrationTests(unittest.TestCase):
         for forbidden in ("praga", "prague", "median", "suburb", "tram"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, source)
+
+
+class BookingHotelsSourceTests(unittest.TestCase):
+    def source_for(self, page: FakePage, state_dir: Path) -> _BookingHotelsSource:
+        source = _BookingHotelsSource(state_dir)
+        source._context = FakeContext(page)
+        return source
+
+    def test_recognized_empty_state_returns_empty_page_and_closes_page(self) -> None:
+        page = FakePage(empty_selectors=(EMPTY_STATE_SELECTORS[0],))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.source_for(page, Path(tmp))
+            result = source.fetch(query(), build_applied_filters(query()), 24)
+
+        self.assertEqual(result.cards, ())
+        self.assertTrue(page.closed)
+
+    def test_unrecognized_no_card_state_raises_and_closes_page(self) -> None:
+        page = FakePage()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.source_for(page, Path(tmp))
+            with self.assertRaises(RuntimeError):
+                source.fetch(query(), build_applied_filters(query()), 24)
+
+        self.assertTrue(page.closed)
+
+    def test_malformed_cards_are_skipped_while_good_cards_survive(self) -> None:
+        page = FakePage(
+            cards=(provider_card(title=None), provider_card(title="Good"))
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.source_for(page, Path(tmp))
+            result = source.fetch(query(), build_applied_filters(query()), 24)
+
+        self.assertEqual([row.title for row in result.cards], ["Good"])
+        self.assertTrue(page.closed)
+
+    def test_fetch_honors_limit(self) -> None:
+        page = FakePage(
+            cards=(
+                provider_card(title="One"),
+                provider_card(title="Two"),
+                provider_card(title="Three"),
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.source_for(page, Path(tmp))
+            result = source.fetch(query(), build_applied_filters(query()), 2)
+
+        self.assertEqual([row.title for row in result.cards], ["One", "Two"])
+
+    def test_fetch_cleans_relative_link_and_keeps_rating_first_line(self) -> None:
+        page = FakePage(cards=(provider_card(),))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.source_for(page, Path(tmp))
+            result = source.fetch(query(), build_applied_filters(query()), 24)
+
+        extracted = result.cards[0]
+        self.assertEqual(extracted.rating, "8,7 Fabuloso")
+        self.assertEqual(
+            extracted.link,
+            "https://www.booking.com/hotel/pt/casa-azul.html",
+        )
+        self.assertTrue(page.closed)
+
+    def test_blank_price_crosses_boundary_and_normalizes_to_empty_success(self) -> None:
+        page = FakePage(cards=(provider_card(total_price=None),))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            provider_source = self.source_for(page, Path(tmp))
+            provider_page = provider_source.fetch(
+                query(),
+                build_applied_filters(query()),
+                24,
+            )
+
+        report = _run_search(
+            (query(),),
+            top=8,
+            source=FakeSource([provider_page]),
+            sleep=lambda _: None,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10, 10, 0, 0),
+        )
+
+        result = report.queries[0]
+        assert isinstance(result, HotelQuerySuccess)
+        self.assertEqual((result.raw_count, result.eligible_count), (1, 0))
+        self.assertEqual(result.offers, ())
+
+    def test_close_persists_state_atomically_and_tears_down(self) -> None:
+        page = FakePage()
+        context = FakeContext(page)
+        browser = FakeBrowser()
+        playwright = FakePlaywright()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = _BookingHotelsSource(Path(tmp))
+            source._context = context
+            source._browser = browser
+            source._pw = playwright
+            source.close()
+
+            state_path = Path(tmp) / "pw_state_booking.json"
+            self.assertEqual(
+                state_path.read_text(encoding="utf-8"),
+                '{"cookies": []}',
+            )
+            self.assertFalse((Path(tmp) / "pw_state_booking.json.tmp").exists())
+
+        self.assertTrue(context.closed)
+        self.assertTrue(browser.closed)
+        self.assertTrue(playwright.stopped)
+        self.assertIsNone(source._context)
+        self.assertIsNone(source._browser)
+        self.assertIsNone(source._pw)
+
+    def test_reset_tears_down_when_state_persistence_fails(self) -> None:
+        context = FakeContext(FakePage(), storage_error=RuntimeError("state write"))
+        browser = FakeBrowser()
+        playwright = FakePlaywright()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = _BookingHotelsSource(Path(tmp))
+            source._context = context
+            source._browser = browser
+            source._pw = playwright
+            source.reset()
+
+        self.assertTrue(context.closed)
+        self.assertTrue(browser.closed)
+        self.assertTrue(playwright.stopped)
+        self.assertIsNone(source._context)
+        self.assertIsNone(source._browser)
+        self.assertIsNone(source._pw)
 
 
 if __name__ == "__main__":

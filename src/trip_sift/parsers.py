@@ -11,10 +11,12 @@ def parse_price_eur(price_text: str | None) -> float | None:
     cleaned = (
         price_text.replace("\xa0", "").replace(" ", "").replace("€", "").strip()
     )
-    m = re.search(r"(-?[\d.,]+)", cleaned)
+    m = re.search(r"([\d.,]+)", cleaned)
     if not m:
         return None
     num = m.group(1)
+    if cleaned.startswith("-"):
+        num = f"-{num}"
     if "," in num and "." in num:
         if num.rfind(",") > num.rfind("."):
             return float(num.replace(".", "").replace(",", "."))
@@ -79,6 +81,7 @@ def parse_rating(rating_text: str | None) -> float | None:
     label_patterns = (
         r"(?:puntuaci[oó]n|valoraci[oó]n|rating|scored)\s*:?\s*(\d+[.,]\d+|\d+)",
         r"^(\d+[.,]\d+|\d+)$",
+        r"(?:^|\D)(\d+[.,]\d+)(?:\D|$)",
     )
     for pattern in label_patterns:
         m = re.search(pattern, text, flags=re.IGNORECASE)

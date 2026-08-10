@@ -229,7 +229,11 @@ def _run_search(
                 eligible = tuple(
                     offer for offer in normalized if _is_eligible(offer, query)
                 )
-                ranked = _sorted_deduplicated_offers(eligible)
+                rank_limit = max(top, len(eligible))
+                ranked = _rank_offers(
+                    eligible,
+                    top=rank_limit,
+                )
                 outcome = HotelQuerySuccess(
                     query=query,
                     applied=applied,
@@ -438,7 +442,7 @@ class _BookingHotelsSource:
                         cards.append(normalized)
                 except Exception:
                     continue
-            if not cards or not any(card.total_price.strip() for card in cards):
+            if not cards:
                 raise RuntimeError("Booking property cards could not be parsed")
             return _HotelPage(cards=tuple(cards))
         finally:
