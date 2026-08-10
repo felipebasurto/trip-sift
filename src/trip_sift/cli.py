@@ -9,6 +9,7 @@ from typing import Optional, Sequence
 from trip_sift.flights import parse_route_specs, search_flights, write_report_atomic
 from trip_sift.hotels import search_hotels, write_hotel_report_atomic
 from trip_sift.models import (
+    AppliedHotelFilters,
     CancellationEvidence,
     HotelQuery,
     HotelQueryFailure,
@@ -70,7 +71,7 @@ def _validate_hotel_args(args: argparse.Namespace) -> HotelQuery:
     return _build_hotel_query(args)
 
 
-def _print_flight_report(report) -> None:
+def _print_report(report) -> None:
     for result in report.queries:
         query = result.query
         header = (
@@ -93,7 +94,26 @@ def _print_flight_report(report) -> None:
             print(f"  ERROR: {result.error.message}")
 
 
-_print_report = _print_flight_report
+def _format_hotel_filter_gloss(query: HotelQuery) -> str:
+    parts: list[str] = []
+    if query.free_cancellation:
+        parts.append("Free cancellation required")
+    else:
+        parts.append("Non-refundable rates allowed")
+    if query.entire_home:
+        parts.append(
+            "Entire homes/apartments required "
+            "(cards with unknown property type may remain)"
+        )
+    if query.min_rating is not None:
+        parts.append(f"Minimum rating {query.min_rating:g}")
+    return "; ".join(parts)
+
+
+def _print_hotel_filters(query: HotelQuery, applied: AppliedHotelFilters) -> None:
+    chips = "; ".join(applied.chips) if applied.chips else "(none)"
+    print(f"  Filters: {_format_hotel_filter_gloss(query)}")
+    print(f"  Booking chips: {chips}")
 
 
 def _format_cancellation_evidence(evidence: CancellationEvidence) -> str:
@@ -113,6 +133,7 @@ def _format_property_type_evidence(evidence: PropertyTypeEvidence) -> str:
 
 
 def _print_hotel_report(report) -> None:
+    any_success = False
     for result in report.queries:
         query = result.query
         nights_label = "night" if query.nights == 1 else "nights"
@@ -123,16 +144,16 @@ def _print_hotel_report(report) -> None:
             f"{query.rooms} room(s)) ==="
         )
         print(header)
+        _print_hotel_filters(query, result.applied)
         if isinstance(result, HotelQuerySuccess):
-            chips = ", ".join(result.applied.chips) if result.applied.chips else "(none)"
-            print(f"  Filters: {chips}")
+            any_success = True
             if not result.offers:
                 print("  (no eligible stays)")
             for offer in result.offers:
                 rating = offer.rating or "-"
                 address = f"  {offer.address}" if offer.address else ""
                 print(
-                    f"  {offer.total_price_eur:>7.0f} € total stay  "
+                    f"  {offer.total_price} total stay  "
                     f"rating {rating}  {offer.title}{address}"
                 )
                 print(f"    {_format_cancellation_evidence(offer.cancellation_evidence)}")
@@ -146,17 +167,16 @@ def _print_hotel_report(report) -> None:
                 f"shown: {len(result.offers)}"
             )
         elif isinstance(result, HotelQueryFailure):
-            chips = ", ".join(result.applied.chips) if result.applied.chips else "(none)"
-            print(f"  Filters: {chips}")
             print(f"  ERROR: {result.error.message}")
-    print(
-        "\nVerify the final total stay price and cancellation terms on Booking.com "
-        "before booking."
-    )
+    if any_success:
+        print(
+            "\nVerify the final total stay price and cancellation terms on Booking.com "
+            "before booking."
+        )
 
 
 def _exit_code(report) -> int:
-    failures = sum(getattr(result, "status", None) == "error" for result in report.queries)
+    failures = sum(result.status == "error" for result in report.queries)
     if failures == 0:
         return 0
     if failures == len(report.queries):
@@ -277,7 +297,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     hotels.add_argument(
         "--entire-home",
         action="store_true",
-        help="Prefer entire homes/apartments",
+        help=(
+            "Require entire homes/apartments "
+            "(cards with unknown property type may remain)"
+        ),
     )
     hotels.add_argument(
         "--allow-non-refundable",

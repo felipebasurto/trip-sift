@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import trip_sift
 from trip_sift.cli import main
+from trip_sift.hotels import write_hotel_report_atomic
 from trip_sift.models import (
     AppliedHotelFilters,
     CancellationEvidence,
@@ -127,11 +128,11 @@ def _sample_hotel_report(
     )
 
 
-def _sample_hotel_offer() -> HotelOffer:
+def _sample_hotel_offer(*, total_price: str = "420 €") -> HotelOffer:
     return HotelOffer(
         title="Old Town Apartment",
         address="Prague 1, Czech Republic",
-        total_price="420 €",
+        total_price=total_price,
         total_price_eur=420.0,
         rating="8.9",
         rating_score=8.9,
@@ -181,7 +182,7 @@ class HotelCliTests(unittest.TestCase):
             search.assert_not_called()
 
     def test_valid_args_build_exact_hotel_query(self) -> None:
-        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()):
+        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()) as search:
             with patch("trip_sift.cli._print_hotel_report"):
                 code = main(
                     [
@@ -201,9 +202,8 @@ class HotelCliTests(unittest.TestCase):
                     ]
                 )
                 self.assertEqual(code, 0)
-                search_hotels = __import__("trip_sift.cli").cli.search_hotels
-                search_hotels.assert_called_once()
-                queries, kwargs = search_hotels.call_args
+                search.assert_called_once()
+                queries, kwargs = search.call_args
                 self.assertEqual(kwargs, {"top": 5})
                 self.assertEqual(len(queries[0]), 1)
                 query = queries[0][0]
@@ -222,7 +222,7 @@ class HotelCliTests(unittest.TestCase):
                 )
 
     def test_allow_non_refundable_flips_cancellation_only(self) -> None:
-        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()):
+        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()) as search:
             with patch("trip_sift.cli._print_hotel_report"):
                 main(
                     [
@@ -233,7 +233,7 @@ class HotelCliTests(unittest.TestCase):
                         "--allow-non-refundable",
                     ]
                 )
-                query = __import__("trip_sift.cli").cli.search_hotels.call_args[0][0][0]
+                query = search.call_args[0][0][0]
                 self.assertFalse(query.free_cancellation)
                 self.assertFalse(query.entire_home)
                 self.assertIsNone(query.min_rating)
@@ -256,8 +256,67 @@ class HotelCliTests(unittest.TestCase):
                     self.assertEqual(main(argv), 1)
                     search.assert_not_called()
 
-    def test_success_output_contract(self) -> None:
+    def test_entire_home_help_is_strict_filter_wording(self) -> None:
+        buffer = io.StringIO()
+        with patch("sys.stdout", buffer):
+            code = main(["hotels", "--help"])
+        self.assertEqual(code, 0)
+        help_text = buffer.getvalue().casefold()
+        self.assertNotIn("prefer entire", help_text)
+        self.assertIn("entire home", help_text)
+        self.assertIn("unknown", help_text)
+
+    def test_default_filter_gloss_and_booking_chips(self) -> None:
         report = _sample_hotel_report(offers=(_sample_hotel_offer(),))
+        with patch("trip_sift.cli.search_hotels", return_value=report):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main(["hotels", "Prague", "2026-12-04", "2026-12-07"])
+            output = buffer.getvalue()
+            lowered = output.casefold()
+            self.assertIn("free cancellation required", lowered)
+            self.assertIn("booking chips: oos=1", lowered)
+
+    def test_non_refundable_opt_out_filter_gloss(self) -> None:
+        query = HotelQuery(
+            "Prague",
+            date(2026, 12, 4),
+            date(2026, 12, 7),
+            free_cancellation=False,
+        )
+        applied = AppliedHotelFilters(chips=(), url="https://example.test")
+        report = HotelSearchReport(
+            searched_at=datetime(2026, 8, 10, 9, 0, 0),
+            queries=(
+                HotelQuerySuccess(
+                    query=query,
+                    applied=applied,
+                    raw_count=1,
+                    eligible_count=1,
+                    offers=(_sample_hotel_offer(),),
+                ),
+            ),
+        )
+        with patch("trip_sift.cli.search_hotels", return_value=report):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main(
+                    [
+                        "hotels",
+                        "Prague",
+                        "2026-12-04",
+                        "2026-12-07",
+                        "--allow-non-refundable",
+                    ]
+                )
+            output = buffer.getvalue().casefold()
+            self.assertIn("non-refundable rates allowed", output)
+            self.assertIn("booking chips: (none)", output)
+
+    def test_success_output_contract(self) -> None:
+        report = _sample_hotel_report(
+            offers=(_sample_hotel_offer(total_price="419,50 €"),),
+        )
         with patch("trip_sift.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
@@ -268,9 +327,9 @@ class HotelCliTests(unittest.TestCase):
             self.assertIn("2026-12-04", output)
             self.assertIn("2026-12-07", output)
             self.assertIn("3 night", output)
-            self.assertIn("oos=1", output)
-            self.assertIn("total stay", output.casefold())
-            self.assertIn("420", output)
+            self.assertIn("free cancellation required", output.casefold())
+            self.assertIn("booking chips: oos=1", output.casefold())
+            self.assertIn("419,50 € total stay", output)
             self.assertIn("Old Town Apartment", output)
             self.assertIn("Prague 1, Czech Republic", output)
             self.assertIn("cancellation: free", output.casefold())
@@ -315,8 +374,9 @@ class HotelCliTests(unittest.TestCase):
                     ]
                 )
             output = buffer.getvalue().casefold()
-            self.assertIn("entire home", output)
+            self.assertIn("entire homes/apartments required", output)
             self.assertIn("property type", output)
+            self.assertIn("booking chips:", output)
 
     def test_empty_success_output(self) -> None:
         report = _sample_hotel_report(offers=(), raw_count=2, eligible_count=0)
@@ -350,7 +410,11 @@ class HotelCliTests(unittest.TestCase):
             with redirect_stdout(buffer):
                 code = main(["hotels", "Prague", "2026-12-04", "2026-12-07"])
             self.assertEqual(code, 2)
-            self.assertIn("ERROR:", buffer.getvalue())
+            output = buffer.getvalue()
+            self.assertIn("ERROR:", output)
+            self.assertIn("free cancellation required", output.casefold())
+            self.assertIn("booking chips: oos=1", output.casefold())
+            self.assertNotIn("verify the final total stay", output.casefold())
 
     def test_save_only_when_requested(self) -> None:
         with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()):
@@ -360,23 +424,28 @@ class HotelCliTests(unittest.TestCase):
 
     def test_atomic_save(self) -> None:
         with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()):
-            with tempfile.TemporaryDirectory() as tmp:
-                out = Path(tmp) / "out.json"
-                code = main(
-                    [
-                        "hotels",
-                        "Prague",
-                        "2026-12-04",
-                        "2026-12-07",
-                        "--save",
-                        str(out),
-                    ]
-                )
-                self.assertEqual(code, 0)
-                self.assertTrue(out.exists())
-                data = json.loads(out.read_text(encoding="utf-8"))
-                self.assertEqual(data["schema_version"], 1)
-                self.assertEqual(data["price_basis"], "total_stay")
+            with patch(
+                "trip_sift.cli.write_hotel_report_atomic",
+                wraps=write_hotel_report_atomic,
+            ) as writer:
+                with tempfile.TemporaryDirectory() as tmp:
+                    out = Path(tmp) / "out.json"
+                    code = main(
+                        [
+                            "hotels",
+                            "Prague",
+                            "2026-12-04",
+                            "2026-12-07",
+                            "--save",
+                            str(out),
+                        ]
+                    )
+                    self.assertEqual(code, 0)
+                    writer.assert_called_once()
+                    self.assertTrue(out.exists())
+                    data = json.loads(out.read_text(encoding="utf-8"))
+                    self.assertEqual(data["schema_version"], 1)
+                    self.assertEqual(data["price_basis"], "total_stay")
 
 
 if __name__ == "__main__":
