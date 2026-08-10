@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from trip_sift.models import CancellationEvidence, PropertyTypeEvidence
+
 
 def parse_price_eur(price_text: str | None) -> float | None:
     if not price_text:
@@ -13,6 +15,8 @@ def parse_price_eur(price_text: str | None) -> float | None:
     if not m:
         return None
     num = m.group(1)
+    if cleaned.startswith("-"):
+        num = f"-{num}"
     if "," in num and "." in num:
         if num.rfind(",") > num.rfind("."):
             return float(num.replace(".", "").replace(",", "."))
@@ -68,3 +72,119 @@ def parse_stops_count(stops: object) -> int | None:
         if m:
             return int(m.group(1))
     return None
+
+
+def parse_rating(rating_text: str | None) -> float | None:
+    if not rating_text:
+        return None
+    text = rating_text.replace("\xa0", " ")
+    label_patterns = (
+        r"(?:puntuaci[oó]n|valoraci[oó]n|rating|scored)\s*:?\s*(\d+[.,]\d+|\d+)",
+        r"^(\d+[.,]\d{1,2}|\d+)$",
+        r"(?<!\d)(\d+[.,]\d{1,2})(?!\d)",
+    )
+    for pattern in label_patterns:
+        m = re.search(pattern, text, flags=re.IGNORECASE)
+        if m:
+            score = float(m.group(1).replace(",", "."))
+            if 0.0 <= score <= 10.0:
+                return score
+            return None
+    return None
+
+
+_FREE_CANCEL_PATTERNS = (
+    r"(?<!\bno\s)(?<!\bsin\s)cancelaci[oó]n\s+gratuita",
+    r"(?<!\bno\s)(?<!\bsin\s)cancelaci[oó]n\s+gratis",
+    r"(?<!\bno\s)free\s+cancell?ation",
+)
+
+_NON_REFUNDABLE_PATTERNS = (
+    r"no\s+reembolsable",
+    r"non[\s-]?refundable",
+    r"no\s+cancell?ation(?!\s+(?:fees?|charges?|costs?))",
+    r"no\s+se\s+puede\s+cancelar",
+)
+
+
+def parse_cancellation_evidence(card_text: str | None) -> CancellationEvidence:
+    if not card_text:
+        return CancellationEvidence.UNKNOWN
+    text = card_text.replace("\xa0", " ").lower()
+    has_free = any(re.search(pat, text) for pat in _FREE_CANCEL_PATTERNS)
+    has_non_refundable = any(
+        re.search(pat, text) for pat in _NON_REFUNDABLE_PATTERNS
+    )
+    if has_non_refundable:
+        return CancellationEvidence.NON_REFUNDABLE
+    if has_free:
+        return CancellationEvidence.FREE
+    return CancellationEvidence.UNKNOWN
+
+
+_ENTIRE_HOME_PATTERNS = (
+    r"apartamento\s+entero",
+    r"alojamiento\s+entero",
+    r"entire\s+home",
+    r"entire\s+apartment",
+    r"whole\s+place",
+    r"casa\s+entera",
+)
+
+_NOT_ENTIRE_HOME_PATTERNS = (
+    r"habitaci[oó]n\s+privada",
+    r"private\s+room",
+    r"shared\s+room",
+    r"habitaci[oó]n\s+compartida",
+    r"hotel\s+room",
+    r"habitaci[oó]n\s+de\s+hotel",
+)
+
+
+def parse_property_type_evidence(card_text: str | None) -> PropertyTypeEvidence:
+    if not card_text:
+        return PropertyTypeEvidence.UNKNOWN
+    text = card_text.replace("\xa0", " ").lower()
+    if any(re.search(pat, text) for pat in _NOT_ENTIRE_HOME_PATTERNS):
+        return PropertyTypeEvidence.NOT_ENTIRE_HOME
+    if any(re.search(pat, text) for pat in _ENTIRE_HOME_PATTERNS):
+        return PropertyTypeEvidence.ENTIRE_HOME
+    return PropertyTypeEvidence.UNKNOWN
+
+
+def parse_unit_hints(card_text: str | None) -> dict[str, int | None]:
+    text = (card_text or "").replace("\xa0", " ").lower()
+    bathrooms = None
+    bedrooms = None
+    beds = None
+
+    for pat in (
+        r"(\d+)\s*baños?",
+        r"(\d+)\s*bathrooms?",
+    ):
+        m = re.search(pat, text)
+        if m:
+            bathrooms = int(m.group(1))
+            break
+
+    for pat in (
+        r"(\d+)\s*dormitorios?",
+        r"(\d+)\s*habitaci[oó]n(?:es)?",
+        r"(\d+)\s*bedrooms?",
+    ):
+        m = re.search(pat, text)
+        if m:
+            bedrooms = int(m.group(1))
+            break
+
+    for pat in (
+        r"(\d+)\s*camas?\b",
+        r"(\d+)\s*beds\b",
+        r"(\d+)\s*bed\b",
+    ):
+        m = re.search(pat, text)
+        if m:
+            beds = int(m.group(1))
+            break
+
+    return {"bedrooms": bedrooms, "bathrooms": bathrooms, "beds": beds}
