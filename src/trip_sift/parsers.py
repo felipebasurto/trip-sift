@@ -91,9 +91,9 @@ def parse_rating(rating_text: str | None) -> float | None:
 
 
 _FREE_CANCEL_PATTERNS = (
-    r"(?<!no\s)(?<!sin\s)cancelaci[oó]n\s+gratuita",
-    r"(?<!no\s)(?<!sin\s)cancelaci[oó]n\s+gratis",
-    r"(?<!no\s)free\s+cancell?ation",
+    r"(?<!\bno\s)(?<!\bsin\s)cancelaci[oó]n\s+gratuita",
+    r"(?<!\bno\s)(?<!\bsin\s)cancelaci[oó]n\s+gratis",
+    r"(?<!\bno\s)free\s+cancell?ation",
 )
 
 _NON_REFUNDABLE_PATTERNS = (

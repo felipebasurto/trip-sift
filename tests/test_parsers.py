@@ -112,6 +112,19 @@ class ParserTests(unittest.TestCase):
                 "No free cancellation. Non-refundable",
                 CancellationEvidence.NON_REFUNDABLE,
             ),
+            (
+                "Desayuno\nCancelación gratuita",
+                CancellationEvidence.FREE,
+            ),
+            (
+                "Hotel Bruno\nCancelación gratuita",
+                CancellationEvidence.FREE,
+            ),
+            (
+                "Apartamento moderno\nCancelación gratuita",
+                CancellationEvidence.FREE,
+            ),
+            ("Casino free cancellation", CancellationEvidence.FREE),
             ("", CancellationEvidence.UNKNOWN),
             (None, CancellationEvidence.UNKNOWN),
             ("Precio por noche", CancellationEvidence.UNKNOWN),
