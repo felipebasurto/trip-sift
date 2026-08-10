@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
   <title>How trip-sift works</title>
-  <desc>Data flow from user or agent through the CLI and local Chromium to typed EUR results, with cookies stored in the local state directory.</desc>
+  <desc>Flight or hotel data flows from a user or agent through the CLI and local Chromium to typed EUR results, with cookies stored in the local state directory.</desc>
   <rect x="1" y="1" width="1198" height="298" rx="20" fill="#F6F0E4" stroke="#E6DCC9" stroke-width="2"/>
   <g>
     <rect x="40" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
@@ -9,7 +9,7 @@
     <circle cx="240" cy="40" r="10" fill="#F6F0E4"/>
     <circle cx="240" cy="190" r="10" fill="#F6F0E4"/>
     <text x="140" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">YOU OR AGENT</text>
-    <text x="140" y="142" fill="#52636B" font-size="18" text-anchor="middle">route + date</text>
+    <text x="140" y="142" fill="#52636B" font-size="18" text-anchor="middle">route or stay</text>
   </g>
   <g>
     <rect x="340" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
@@ -27,7 +27,7 @@
     <circle cx="840" cy="40" r="10" fill="#F6F0E4"/>
     <circle cx="840" cy="190" r="10" fill="#F6F0E4"/>
     <text x="740" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">LOCAL CHROMIUM</text>
-    <text x="740" y="142" fill="#52636B" font-size="18" text-anchor="middle">Google Flights</text>
+    <text x="740" y="142" fill="#52636B" font-size="18" text-anchor="middle">Flights + Booking</text>
   </g>
   <g>
     <rect x="940" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>

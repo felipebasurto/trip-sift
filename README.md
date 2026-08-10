@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/trip-sift-hero.svg" alt="trip-sift local flight search" width="100%">
+  <img src="docs/assets/trip-sift-hero.svg" alt="trip-sift local flight and hotel search" width="100%">
 </p>
 
 <p align="center">
@@ -9,9 +9,9 @@
   <img alt="Runs locally" src="https://img.shields.io/badge/runtime-local-172A33">
 </p>
 
-`trip-sift` searches one-way economy flights through local Chromium and returns EUR prices with raw and normalized fields for each offer. Searches use Spanish (`es-ES`) locale data. It uses [fast-flights](https://pypi.org/project/fast-flights/) and Playwright on your machine.
+`trip-sift` searches one-way economy flights and Booking.com stays through local Chromium. It returns EUR prices with raw and normalized fields for each offer, using Spanish (`es-ES`) locale data. It uses [fast-flights](https://pypi.org/project/fast-flights/) and Playwright on your machine.
 
-This is an unofficial project with no affiliation to Google. Google can change markup at any time, which may break parsing. Review the [Google Terms of Service](https://policies.google.com/terms) and your own obligations before use.
+This is an unofficial project with no affiliation to Google or Booking.com. Either provider can change markup at any time, which may break parsing. Review the [Google Terms of Service](https://policies.google.com/terms), [Booking.com terms](https://www.booking.com/content/terms.html), and your own obligations before use.
 
 ## Install
 
@@ -23,7 +23,7 @@ python3.9 -m venv .venv
 
 Requires Python 3.9 or newer. After these steps, the `trip-sift` CLI is available in `.venv/bin/`.
 
-## Search one route
+## Search flights
 
 ```bash
 .venv/bin/trip-sift flights MAD-BCN:2026-09-01
@@ -31,12 +31,21 @@ Requires Python 3.9 or newer. After these steps, the `trip-sift` CLI is availabl
 
 Prints up to eight eligible offers in a table. No result file is created.
 
+## Search hotels
+
+```bash
+.venv/bin/trip-sift hotels Prague 2026-12-04 2026-12-07
+```
+
+Hotel prices are totals for the complete stay. Free cancellation is required by default; use `--allow-non-refundable` only when you explicitly want to include other stays.
+
 ## At a glance
 
 | Capability | Behavior |
 |---|---|
-| Multiple dates | Expands comma-separated dates and searches sequentially. |
-| Stops | Supports direct flights or at most one stop. |
+| Flights | Compares comma-separated dates, with direct or one-stop filtering. |
+| Hotels | Searches Booking.com by location and stay dates. |
+| Hotel filters | Free cancellation by default; optional minimum rating and entire-home filter. |
 | Output | Prints a table and writes JSON only with `--save`. |
 | Rate limits | Keeps fixed delays, jitter, and exponential backoff. |
 | Privacy | Stores browser state outside the checkout. |
@@ -86,19 +95,43 @@ for result in report.queries:
             print(offer.price_eur, offer.airline)
 ```
 
+Hotels use the same report pattern:
+
+```python
+from datetime import date
+
+from trip_sift import HotelQuery, search_hotels
+
+report = search_hotels(
+    [
+        HotelQuery(
+            location="Prague",
+            check_in=date(2026, 12, 4),
+            check_out=date(2026, 12, 7),
+        )
+    ],
+    top=5,
+)
+
+for result in report.queries:
+    if result.status == "ok":
+        for offer in result.offers:
+            print(offer.total_price_eur, offer.title)
+```
+
 ## Baggage
 
 Low-cost carriers include a 70 EUR baggage buffer in ranking. That is an estimate, not a fare quote. Confirm checked-bag rules and price on Google Flights before booking.
 
 ## Browser state
 
-Playwright consent cookies persist at:
+Playwright consent cookies persist as `pw_state_google.json` and `pw_state_booking.json` at:
 
-1. `$TRIP_SIFT_STATE_DIR/pw_state_google.json`
-2. `$XDG_STATE_HOME/trip-sift/pw_state_google.json`
-3. `~/.local/state/trip-sift/pw_state_google.json`
+1. `$TRIP_SIFT_STATE_DIR/`
+2. `$XDG_STATE_HOME/trip-sift/`
+3. `~/.local/state/trip-sift/`
 
-Delete that file if consent or scraping breaks; it will be recreated on the next run.
+Delete the affected provider file if consent or scraping breaks; it will be recreated on the next run.
 
 ## Rate limits
 
