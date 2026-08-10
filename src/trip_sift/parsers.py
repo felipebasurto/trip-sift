@@ -91,9 +91,9 @@ def parse_rating(rating_text: str | None) -> float | None:
 
 
 _FREE_CANCEL_PATTERNS = (
-    r"cancelaci[oó]n\s+gratuita",
-    r"cancelaci[oó]n\s+gratis",
-    r"free\s+cancell?ation",
+    r"(?<!no\s)(?<!sin\s)cancelaci[oó]n\s+gratuita",
+    r"(?<!no\s)(?<!sin\s)cancelaci[oó]n\s+gratis",
+    r"(?<!no\s)free\s+cancell?ation",
 )
 
 _NON_REFUNDABLE_PATTERNS = (
@@ -177,7 +177,7 @@ def parse_unit_hints(card_text: str | None) -> dict[str, int | None]:
     for pat in (
         r"(\d+)\s*camas?\b",
         r"(\d+)\s*beds\b",
-        r"(\d+)\s*bed\b(?!room)",
+        r"(\d+)\s*bed\b",
     ):
         m = re.search(pat, text)
         if m:

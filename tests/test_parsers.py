@@ -102,6 +102,16 @@ class ParserTests(unittest.TestCase):
                 "Free cancellation. No cancellation fees.",
                 CancellationEvidence.FREE,
             ),
+            ("No free cancellation", CancellationEvidence.UNKNOWN),
+            ("Sin cancelación gratuita", CancellationEvidence.UNKNOWN),
+            (
+                "Sin cancelación gratuita. No reembolsable",
+                CancellationEvidence.NON_REFUNDABLE,
+            ),
+            (
+                "No free cancellation. Non-refundable",
+                CancellationEvidence.NON_REFUNDABLE,
+            ),
             ("", CancellationEvidence.UNKNOWN),
             (None, CancellationEvidence.UNKNOWN),
             ("Precio por noche", CancellationEvidence.UNKNOWN),
