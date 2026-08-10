@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Optional, Sequence
 
 from trip_sift.flights import parse_route_specs, search_flights, write_report_atomic
-from trip_sift.models import QueryFailure, QuerySuccess
+from trip_sift.hotels import search_hotels, write_hotel_report_atomic
+from trip_sift.models import (
+    CancellationEvidence,
+    HotelQuery,
+    HotelQueryFailure,
+    HotelQuerySuccess,
+    PropertyTypeEvidence,
+    QueryFailure,
+    QuerySuccess,
+)
 
 
 FLIGHTS_EXAMPLES = """\
@@ -16,8 +26,15 @@ Examples:
   trip-sift flights MAD-BCN:2026-09-01,2026-09-02 --top 5 --save results/search.json
 """
 
+HOTELS_EXAMPLES = """\
+Examples:
+  trip-sift hotels Prague 2026-12-04 2026-12-07
+  trip-sift hotels "Prague, Czech Republic" 2026-12-04 2026-12-10 --top 5
+  trip-sift hotels Prague 2026-12-04 2026-12-07 --entire-home --min-rating 8.5 --save results/hotels.json
+"""
 
-def _validate_args(args: argparse.Namespace) -> None:
+
+def _validate_flight_args(args: argparse.Namespace) -> None:
     if args.max_stops not in (0, 1):
         raise ValueError("--max-stops must be 0 or 1")
     if args.top <= 0:
@@ -25,7 +42,35 @@ def _validate_args(args: argparse.Namespace) -> None:
     parse_route_specs(args.routes, max_stops=args.max_stops)
 
 
-def _print_report(report) -> None:
+def _parse_iso_date(value: str, label: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{label} must be an ISO date (YYYY-MM-DD)") from exc
+
+
+def _build_hotel_query(args: argparse.Namespace) -> HotelQuery:
+    check_in = _parse_iso_date(args.check_in, "check-in")
+    check_out = _parse_iso_date(args.check_out, "check-out")
+    return HotelQuery(
+        location=args.location,
+        check_in=check_in,
+        check_out=check_out,
+        adults=args.adults,
+        rooms=args.rooms,
+        min_rating=args.min_rating,
+        entire_home=args.entire_home,
+        free_cancellation=not args.allow_non_refundable,
+    )
+
+
+def _validate_hotel_args(args: argparse.Namespace) -> HotelQuery:
+    if args.top <= 0:
+        raise ValueError("--top must be a positive integer")
+    return _build_hotel_query(args)
+
+
+def _print_flight_report(report) -> None:
     for result in report.queries:
         query = result.query
         header = (
@@ -48,8 +93,70 @@ def _print_report(report) -> None:
             print(f"  ERROR: {result.error.message}")
 
 
+_print_report = _print_flight_report
+
+
+def _format_cancellation_evidence(evidence: CancellationEvidence) -> str:
+    if evidence is CancellationEvidence.FREE:
+        return "Cancellation: free"
+    if evidence is CancellationEvidence.NON_REFUNDABLE:
+        return "Cancellation: non-refundable"
+    return "Cancellation: unknown"
+
+
+def _format_property_type_evidence(evidence: PropertyTypeEvidence) -> str:
+    if evidence is PropertyTypeEvidence.ENTIRE_HOME:
+        return "Property type: entire home confirmed"
+    if evidence is PropertyTypeEvidence.NOT_ENTIRE_HOME:
+        return "Property type: not entire home"
+    return "Property type: unknown"
+
+
+def _print_hotel_report(report) -> None:
+    for result in report.queries:
+        query = result.query
+        nights_label = "night" if query.nights == 1 else "nights"
+        header = (
+            f"\n=== {query.location}  "
+            f"{query.check_in.isoformat()} -> {query.check_out.isoformat()} "
+            f"({query.nights} {nights_label}, {query.adults} adult(s), "
+            f"{query.rooms} room(s)) ==="
+        )
+        print(header)
+        if isinstance(result, HotelQuerySuccess):
+            chips = ", ".join(result.applied.chips) if result.applied.chips else "(none)"
+            print(f"  Filters: {chips}")
+            if not result.offers:
+                print("  (no eligible stays)")
+            for offer in result.offers:
+                rating = offer.rating or "-"
+                address = f"  {offer.address}" if offer.address else ""
+                print(
+                    f"  {offer.total_price_eur:>7.0f} € total stay  "
+                    f"rating {rating}  {offer.title}{address}"
+                )
+                print(f"    {_format_cancellation_evidence(offer.cancellation_evidence)}")
+                if query.entire_home:
+                    print(
+                        f"    {_format_property_type_evidence(offer.property_type_evidence)}"
+                    )
+            print(
+                f"  Raw cards: {result.raw_count}; "
+                f"eligible: {result.eligible_count}; "
+                f"shown: {len(result.offers)}"
+            )
+        elif isinstance(result, HotelQueryFailure):
+            chips = ", ".join(result.applied.chips) if result.applied.chips else "(none)"
+            print(f"  Filters: {chips}")
+            print(f"  ERROR: {result.error.message}")
+    print(
+        "\nVerify the final total stay price and cancellation terms on Booking.com "
+        "before booking."
+    )
+
+
 def _exit_code(report) -> int:
-    failures = sum(isinstance(result, QueryFailure) for result in report.queries)
+    failures = sum(getattr(result, "status", None) == "error" for result in report.queries)
     if failures == 0:
         return 0
     if failures == len(report.queries):
@@ -57,11 +164,47 @@ def _exit_code(report) -> int:
     return 3
 
 
+def _run_flights(args: argparse.Namespace) -> int:
+    try:
+        _validate_flight_args(args)
+        queries = parse_route_specs(args.routes, max_stops=args.max_stops)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    report = search_flights(queries, top=args.top)
+    _print_report(report)
+
+    if args.save:
+        destination = Path(args.save)
+        write_report_atomic(report, destination)
+        print(f"\nSaved {destination}")
+
+    return _exit_code(report)
+
+
+def _run_hotels(args: argparse.Namespace) -> int:
+    try:
+        query = _validate_hotel_args(args)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    report = search_hotels((query,), top=args.top)
+    _print_hotel_report(report)
+
+    if args.save:
+        destination = Path(args.save)
+        write_hotel_report_atomic(report, destination)
+        print(f"\nSaved {destination}")
+
+    return _exit_code(report)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Search Google Flights locally (EUR, es locale)",
+        description="Search Google Flights and Booking.com locally (EUR, es locale)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=FLIGHTS_EXAMPLES,
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -96,32 +239,71 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="Write JSON report atomically to FILE",
     )
 
+    hotels = sub.add_parser(
+        "hotels",
+        help="Booking.com hotel search (EUR, es, total-stay prices)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=HOTELS_EXAMPLES,
+    )
+    hotels.add_argument("location", help="City or area name")
+    hotels.add_argument("check_in", help="Check-in date (YYYY-MM-DD)")
+    hotels.add_argument("check_out", help="Check-out date (YYYY-MM-DD)")
+    hotels.add_argument(
+        "--adults",
+        type=int,
+        default=2,
+        help="Number of adults (default 2)",
+    )
+    hotels.add_argument(
+        "--rooms",
+        type=int,
+        default=1,
+        help="Number of rooms (default 1)",
+    )
+    hotels.add_argument(
+        "--top",
+        type=int,
+        default=8,
+        help="Stays to show (default 8)",
+    )
+    hotels.add_argument(
+        "--min-rating",
+        type=float,
+        default=None,
+        dest="min_rating",
+        metavar="SCORE",
+        help="Minimum review score (0-10)",
+    )
+    hotels.add_argument(
+        "--entire-home",
+        action="store_true",
+        help="Prefer entire homes/apartments",
+    )
+    hotels.add_argument(
+        "--allow-non-refundable",
+        action="store_true",
+        help="Include non-refundable stays (default filters to free cancellation)",
+    )
+    hotels.add_argument(
+        "--save",
+        default=None,
+        metavar="FILE",
+        help="Write JSON report atomically to FILE",
+    )
+
     try:
         args = parser.parse_args(list(argv) if argv is not None else None)
     except SystemExit as exc:
         code = exc.code
         return 0 if code == 0 else 1
 
-    if args.cmd != "flights":
-        parser.print_help()
-        return 1
+    if args.cmd == "flights":
+        return _run_flights(args)
+    if args.cmd == "hotels":
+        return _run_hotels(args)
 
-    try:
-        _validate_args(args)
-        queries = parse_route_specs(args.routes, max_stops=args.max_stops)
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-
-    report = search_flights(queries, top=args.top)
-    _print_report(report)
-
-    if args.save:
-        destination = Path(args.save)
-        write_report_atomic(report, destination)
-        print(f"\nSaved {destination}")
-
-    return _exit_code(report)
+    parser.print_help()
+    return 1
 
 
 if __name__ == "__main__":
