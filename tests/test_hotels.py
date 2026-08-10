@@ -13,6 +13,8 @@ import trip_sift.hotels as hotels_module
 from trip_sift.hotels import (
     BACKOFF_BASE_SECONDS,
     BACKOFF_JITTER_SECONDS,
+    CONSENT_SELECTORS,
+    DESKTOP_USER_AGENT,
     EMPTY_STATE_SELECTORS,
     MAX_ATTEMPTS,
     PROPERTY_CARD_SELECTOR,
@@ -107,9 +109,12 @@ class FakeLocator:
         *,
         count: int = 0,
         visible: bool = False,
+        wait_error: Exception | None = None,
     ) -> None:
         self._count = count
         self._visible = visible
+        self._wait_error = wait_error
+        self.click_timeouts: List[int] = []
 
     @property
     def first(self) -> "FakeLocator":
@@ -122,10 +127,11 @@ class FakeLocator:
         return self._visible
 
     def click(self, *, timeout: int) -> None:
-        return None
+        self.click_timeouts.append(timeout)
 
     def wait_for(self, *, timeout: int) -> None:
-        return None
+        if self._wait_error is not None:
+            raise self._wait_error
 
 
 class FakePage:
@@ -133,20 +139,27 @@ class FakePage:
         self,
         cards: Sequence[FakeProviderCard] = (),
         empty_selectors: Sequence[str] = (),
+        locators: dict[str, FakeLocator] | None = None,
+        wait_error: Exception | None = None,
     ) -> None:
         self.cards = list(cards)
         self.empty_selectors = set(empty_selectors)
+        self.locators = locators or {}
+        self.wait_error = wait_error
         self.closed = False
+        self.wait_timeouts: List[int] = []
 
     def goto(self, url: str, *, wait_until: str, timeout: int) -> None:
         return None
 
     def locator(self, selector: str) -> FakeLocator:
+        if selector in self.locators:
+            return self.locators[selector]
         result_selector = ", ".join(
             (PROPERTY_CARD_SELECTOR,) + EMPTY_STATE_SELECTORS
         )
         if selector == result_selector:
-            return FakeLocator(count=1, visible=True)
+            return FakeLocator(count=1, visible=True, wait_error=self.wait_error)
         visible = selector in self.empty_selectors
         return FakeLocator(count=int(visible), visible=visible)
 
@@ -154,7 +167,7 @@ class FakePage:
         return self.cards if selector == PROPERTY_CARD_SELECTOR else []
 
     def wait_for_timeout(self, timeout: int) -> None:
-        return None
+        self.wait_timeouts.append(timeout)
 
     def close(self) -> None:
         self.closed = True
@@ -170,33 +183,81 @@ class FakeContext:
         self.page = page
         self.storage_error = storage_error
         self.closed = False
+        self.route_calls: List[Tuple[str, object]] = []
+        self.storage_paths: List[str] = []
 
     def new_page(self) -> FakePage:
         return self.page
 
     def storage_state(self, *, path: str) -> None:
+        self.storage_paths.append(path)
         if self.storage_error is not None:
             raise self.storage_error
         Path(path).write_text('{"cookies": []}', encoding="utf-8")
+
+    def route(self, pattern: str, handler: object) -> None:
+        self.route_calls.append((pattern, handler))
 
     def close(self) -> None:
         self.closed = True
 
 
 class FakeBrowser:
-    def __init__(self) -> None:
+    def __init__(self, context: FakeContext | None = None) -> None:
+        self.context = context
         self.closed = False
+        self.context_options: List[dict[str, object]] = []
+
+    def new_context(self, **options: object) -> FakeContext:
+        self.context_options.append(options)
+        if self.context is None:
+            raise RuntimeError("missing fake context")
+        return self.context
 
     def close(self) -> None:
         self.closed = True
 
 
+class FakeChromium:
+    def __init__(self, browser: FakeBrowser) -> None:
+        self.browser = browser
+        self.launch_options: List[dict[str, object]] = []
+
+    def launch(self, **options: object) -> FakeBrowser:
+        self.launch_options.append(options)
+        return self.browser
+
+
 class FakePlaywright:
-    def __init__(self) -> None:
+    def __init__(self, chromium: FakeChromium | None = None) -> None:
+        self.chromium = chromium
         self.stopped = False
 
     def stop(self) -> None:
         self.stopped = True
+
+
+class FakePlaywrightStarter:
+    def __init__(self, playwright: FakePlaywright) -> None:
+        self.playwright = playwright
+        self.start_calls = 0
+
+    def start(self) -> FakePlaywright:
+        self.start_calls += 1
+        return self.playwright
+
+
+class FakeRoute:
+    def __init__(self, resource_type: str) -> None:
+        self.request = type("Request", (), {"resource_type": resource_type})()
+        self.aborted = False
+        self.continued = False
+
+    def abort(self) -> None:
+        self.aborted = True
+
+    def continue_(self) -> None:
+        self.continued = True
 
 
 def query(**overrides: object) -> HotelQuery:
@@ -374,6 +435,14 @@ class PureHotelLogicTests(unittest.TestCase):
 
         assert normalized is not None
         self.assertEqual(normalized.rating_score, 8.7)
+
+    def test_normalize_card_does_not_publish_review_count_as_rating(self) -> None:
+        normalized = _normalize_card(
+            card(rating="Fabuloso 1.234 comentarios")
+        )
+
+        assert normalized is not None
+        self.assertIsNone(normalized.rating_score)
 
     def test_invalid_prices_are_dropped(self) -> None:
         for price in ("", "consultar", "0 €", "-20 €"):
@@ -678,6 +747,79 @@ class BookingHotelsSourceTests(unittest.TestCase):
         source._context = FakeContext(page)
         return source
 
+    def test_ensure_context_configures_browser_and_registers_atexit_once(self) -> None:
+        context = FakeContext(FakePage())
+        browser = FakeBrowser(context)
+        chromium = FakeChromium(browser)
+        playwright = FakePlaywright(chromium)
+        starter = FakePlaywrightStarter(playwright)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            state_path = state_dir / "pw_state_booking.json"
+            state_path.write_text('{"cookies": []}', encoding="utf-8")
+            source = _BookingHotelsSource(state_dir)
+
+            with (
+                patch(
+                    "playwright.sync_api.sync_playwright",
+                    return_value=starter,
+                ),
+                patch("trip_sift.hotels.atexit.register") as register,
+            ):
+                first = source._ensure_context()
+                second = source._ensure_context()
+
+            self.assertIs(first, context)
+            self.assertIs(second, context)
+            self.assertEqual(starter.start_calls, 1)
+            self.assertEqual(chromium.launch_options, [{"headless": True}])
+            self.assertEqual(
+                browser.context_options,
+                [
+                    {
+                        "locale": "es-ES",
+                        "viewport": {"width": 1280, "height": 900},
+                        "user_agent": DESKTOP_USER_AGENT,
+                        "storage_state": str(state_path),
+                    }
+                ],
+            )
+            self.assertEqual(context.route_calls[0][0], "**/*")
+            register.assert_called_once_with(source.close)
+            source.close()
+
+    def test_resource_blocking_aborts_heavy_and_continues_other_requests(self) -> None:
+        image_route = FakeRoute("image")
+        script_route = FakeRoute("script")
+
+        _BookingHotelsSource._block_heavy_resources(image_route)
+        _BookingHotelsSource._block_heavy_resources(script_route)
+
+        self.assertTrue(image_route.aborted)
+        self.assertFalse(image_route.continued)
+        self.assertFalse(script_route.aborted)
+        self.assertTrue(script_route.continued)
+
+    def test_visible_consent_button_is_clicked(self) -> None:
+        button = FakeLocator(count=1, visible=True)
+        page = FakePage(locators={CONSENT_SELECTORS[0]: button})
+
+        _BookingHotelsSource._dismiss_consent(page)
+
+        self.assertEqual(button.click_timeouts, [3_000])
+        self.assertEqual(page.wait_timeouts, [800])
+
+    def test_selector_timeout_closes_page_and_propagates(self) -> None:
+        page = FakePage(wait_error=RuntimeError("selector timeout"))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.source_for(page, Path(tmp))
+            with self.assertRaisesRegex(RuntimeError, "selector timeout"):
+                source.fetch(query(), build_applied_filters(query()), 24)
+
+        self.assertTrue(page.closed)
+
     def test_recognized_empty_state_returns_empty_page_and_closes_page(self) -> None:
         page = FakePage(empty_selectors=(EMPTY_STATE_SELECTORS[0],))
 
@@ -784,6 +926,10 @@ class BookingHotelsSourceTests(unittest.TestCase):
                 '{"cookies": []}',
             )
             self.assertFalse((Path(tmp) / "pw_state_booking.json.tmp").exists())
+            self.assertEqual(
+                context.storage_paths,
+                [str(Path(tmp) / "pw_state_booking.json.tmp")],
+            )
 
         self.assertTrue(context.closed)
         self.assertTrue(browser.closed)

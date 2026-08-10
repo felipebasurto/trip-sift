@@ -80,8 +80,8 @@ def parse_rating(rating_text: str | None) -> float | None:
     text = rating_text.replace("\xa0", " ")
     label_patterns = (
         r"(?:puntuaci[oó]n|valoraci[oó]n|rating|scored)\s*:?\s*(\d+[.,]\d+|\d+)",
-        r"^(\d+[.,]\d+|\d+)$",
-        r"(?:^|\D)(\d+[.,]\d+)(?:\D|$)",
+        r"^(\d+[.,]\d{1,2}|\d+)$",
+        r"(?<!\d)(\d+[.,]\d{1,2})(?!\d)",
     )
     for pattern in label_patterns:
         m = re.search(pattern, text, flags=re.IGNORECASE)
