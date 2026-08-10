@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <title>trip-sift local flight search</title>
+  <desc>A boarding pass with the trip-sift name, a route, and a terminal command.</desc>
+  <rect x="1" y="1" width="1198" height="418" rx="28" fill="#F6F0E4" stroke="#E6DCC9" stroke-width="2"/>
+  <path d="M930 0V420" stroke="#E6DCC9" stroke-width="3" stroke-dasharray="10 12"/>
+  <circle cx="930" cy="0" r="15" fill="#F6F0E4"/>
+  <circle cx="930" cy="420" r="15" fill="#F6F0E4"/>
+  <text x="72" y="72" fill="#D75A2B" font-size="20" font-weight="700" letter-spacing="3">OPEN SOURCE CLI</text>
+  <text x="72" y="150" fill="#172A33" font-size="72" font-weight="800">trip-sift</text>
+  <text x="72" y="198" fill="#52636B" font-size="28">Local flight search. No API keys.</text>
+  <rect x="72" y="258" width="744" height="84" rx="14" fill="#172A33"/>
+  <text x="102" y="311" fill="#F3C7A9" font-size="24" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">$</text>
+  <text x="132" y="311" fill="#FFFCF6" font-size="24" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">trip-sift flights MAD-BCN:2026-09-01</text>
+  <circle cx="1065" cy="112" r="70" fill="none" stroke="#D75A2B" stroke-width="6"/>
+  <path d="M1045 112h44M1069 100l18 12-18 12M1051 108l-10 4 10 4" fill="none" stroke="#D75A2B" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1065" y="226" fill="#52636B" font-size="18" letter-spacing="2" text-anchor="middle">AGENT READY</text>
+  <text x="1065" y="258" fill="#172A33" font-size="26" font-weight="700" text-anchor="middle">EUR / ES</text>
+  <path d="M994 322H1137" stroke="#D75A2B" stroke-width="3" stroke-dasharray="5 8"/>
+  <circle cx="994" cy="322" r="8" fill="#172A33"/>
+  <circle cx="1137" cy="322" r="8" fill="#D75A2B"/>
+</svg>

@@ -1,0 +1,15 @@
+.superpowers/
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.trip-sift/
+results/
+*.trip-sift.json
+playwright-report/
+test-results/
+*.log

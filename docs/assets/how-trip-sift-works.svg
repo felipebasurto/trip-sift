@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <title>How trip-sift works</title>
+  <desc>Data flow from user or agent through the CLI and local Chromium to typed EUR results, with cookies stored in the local state directory.</desc>
+  <rect x="1" y="1" width="1198" height="298" rx="20" fill="#F6F0E4" stroke="#E6DCC9" stroke-width="2"/>
+  <g>
+    <rect x="40" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <rect x="240" y="40" width="40" height="150" rx="8" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <path d="M240 40V190" stroke="#E6DCC9" stroke-width="2" stroke-dasharray="6 8"/>
+    <circle cx="240" cy="40" r="10" fill="#F6F0E4"/>
+    <circle cx="240" cy="190" r="10" fill="#F6F0E4"/>
+    <text x="140" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">YOU OR AGENT</text>
+    <text x="140" y="142" fill="#52636B" font-size="18" text-anchor="middle">route + date</text>
+  </g>
+  <g>
+    <rect x="340" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <rect x="540" y="40" width="40" height="150" rx="8" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <path d="M540 40V190" stroke="#E6DCC9" stroke-width="2" stroke-dasharray="6 8"/>
+    <circle cx="540" cy="40" r="10" fill="#F6F0E4"/>
+    <circle cx="540" cy="190" r="10" fill="#F6F0E4"/>
+    <text x="440" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">trip-sift CLI</text>
+    <text x="440" y="142" fill="#52636B" font-size="18" text-anchor="middle">validate + pace</text>
+  </g>
+  <g>
+    <rect x="640" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <rect x="840" y="40" width="40" height="150" rx="8" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <path d="M840 40V190" stroke="#E6DCC9" stroke-width="2" stroke-dasharray="6 8"/>
+    <circle cx="840" cy="40" r="10" fill="#F6F0E4"/>
+    <circle cx="840" cy="190" r="10" fill="#F6F0E4"/>
+    <text x="740" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">LOCAL CHROMIUM</text>
+    <text x="740" y="142" fill="#52636B" font-size="18" text-anchor="middle">Google Flights</text>
+  </g>
+  <g>
+    <rect x="940" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <rect x="1140" y="40" width="40" height="150" rx="8" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <path d="M1140 40V190" stroke="#E6DCC9" stroke-width="2" stroke-dasharray="6 8"/>
+    <circle cx="1140" cy="40" r="10" fill="#F6F0E4"/>
+    <circle cx="1140" cy="190" r="10" fill="#F6F0E4"/>
+    <text x="1040" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">TYPED RESULTS</text>
+    <text x="1040" y="142" fill="#52636B" font-size="18" text-anchor="middle">EUR + optional JSON</text>
+  </g>
+  <g fill="none" stroke="#D75A2B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M288 115H318"/>
+    <path d="M588 115H618"/>
+    <path d="M888 115H918"/>
+  </g>
+  <g fill="#D75A2B">
+    <path d="M332 115L318 107V123Z"/>
+    <path d="M632 115L618 107V123Z"/>
+    <path d="M932 115L918 107V123Z"/>
+  </g>
+  <text x="600" y="252" fill="#52636B" font-size="18" text-anchor="middle">Cookies stay in your local state directory.</text>
+</svg>

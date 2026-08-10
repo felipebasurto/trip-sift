@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trip-sift"
+version = "0.1.0"
+description = "Local Google Flights search via Playwright (EUR, es locale)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "trip-sift contributors" }]
+dependencies = [
+    "fast-flights==2.2",
+    "playwright==1.60.0",
+]
+
+[project.scripts]
+trip-sift = "trip_sift.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
