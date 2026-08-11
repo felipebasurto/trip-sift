@@ -34,6 +34,8 @@ MAX_ATTEMPTS = 3
 BACKOFF_BASE_SECONDS = 8.0
 BACKOFF_JITTER_SECONDS = 3.0
 
+DEFAULT_BAGGAGE_BUFFER_EUR = 70
+
 LOW_COST_NAMES = [
     "AirAsia",
     "AirAsia X",
@@ -144,8 +146,12 @@ def is_low_cost(airline_text: str) -> bool:
     return any(name in text for name in LOW_COST_NAMES)
 
 
-def baggage_buffer_eur(airline_text: str) -> int:
-    return 70 if is_low_cost(airline_text) else 0
+def baggage_buffer_eur(
+    airline_text: str,
+    *,
+    buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
+) -> int:
+    return buffer_eur if is_low_cost(airline_text) else 0
 
 
 def _stops_text(stops: object) -> Optional[str]:
@@ -169,7 +175,12 @@ def _eligible_stops(stops: object, max_stops: int) -> bool:
     return max_stops >= 1
 
 
-def _normalize_offer(raw: _ProviderOffer, max_stops: int) -> Optional[FlightOffer]:
+def _normalize_offer(
+    raw: _ProviderOffer,
+    max_stops: int,
+    *,
+    buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
+) -> Optional[FlightOffer]:
     price_text = raw.price or ""
     price_eur = parse_price_eur(price_text)
     if price_eur is None or price_eur <= 0:
@@ -187,7 +198,7 @@ def _normalize_offer(raw: _ProviderOffer, max_stops: int) -> Optional[FlightOffe
         duration_hours=parse_duration_hours(raw.duration),
         stops=_stops_text(raw.stops),
         stops_count=parse_stops_count(raw.stops),
-        baggage_buffer_eur=baggage_buffer_eur(airline),
+        baggage_buffer_eur=baggage_buffer_eur(airline, buffer_eur=buffer_eur),
         needs_bag_verify=is_low_cost(airline),
     )
 
@@ -226,6 +237,7 @@ def _run_search(
     sleep: Callable[[float], None],
     random_gen: random.Random,
     now: Callable[[], datetime],
+    buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
 ) -> SearchReport:
     results: list[QueryResult] = []
     for index, query in enumerate(queries):
@@ -236,7 +248,12 @@ def _run_search(
                 offers = [
                     offer
                     for raw in provider_result.flights
-                    if (offer := _normalize_offer(raw, query.max_stops)) is not None
+                    if (
+                        offer := _normalize_offer(
+                            raw, query.max_stops, buffer_eur=buffer_eur
+                        )
+                    )
+                    is not None
                 ]
                 outcome = QuerySuccess(
                     query=query,
@@ -270,11 +287,14 @@ def search_flights(
     queries: Sequence[FlightQuery],
     *,
     top: int = 8,
+    buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
 ) -> SearchReport:
     if not queries:
         raise ValueError("at least one query is required")
     if top <= 0:
         raise ValueError("top must be positive")
+    if buffer_eur < 0:
+        raise ValueError("buffer_eur must not be negative")
     state_dir = default_state_dir()
     source = _GoogleFlightsSource(state_dir)
     try:
@@ -285,6 +305,7 @@ def search_flights(
             sleep=time.sleep,
             random_gen=random.Random(),
             now=lambda: datetime.utcnow(),
+            buffer_eur=buffer_eur,
         )
     finally:
         source.close()

@@ -5,7 +5,12 @@ import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
-from trip_sift.flights import parse_route_specs, search_flights, write_report_atomic
+from trip_sift.flights import (
+    DEFAULT_BAGGAGE_BUFFER_EUR,
+    parse_route_specs,
+    search_flights,
+    write_report_atomic,
+)
 from trip_sift.models import QueryFailure, QuerySuccess
 
 
@@ -22,7 +27,29 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-stops must be 0 or 1")
     if args.top <= 0:
         raise ValueError("--top must be a positive integer")
+    if args.baggage_buffer < 0:
+        raise ValueError("--baggage-buffer must not be negative")
     parse_route_specs(args.routes, max_stops=args.max_stops)
+
+
+def _format_stops(stops_count: Optional[int]) -> str:
+    if stops_count is None:
+        return "?"
+    if stops_count == 0:
+        return "direct"
+    return f"{stops_count} stop" + ("s" if stops_count > 1 else "")
+
+
+def _format_airline(airline: Optional[str]) -> str:
+    text = airline or "?"
+    return text if len(text) <= 40 else text[:39] + "…"
+
+
+def _format_ranking_note(offer) -> str:
+    if offer.baggage_buffer_eur:
+        total = offer.price_eur + offer.baggage_buffer_eur
+        return f"  (+{offer.baggage_buffer_eur} bag = {total:.0f} € ranked)"
+    return "  [baggage?]" if offer.needs_bag_verify else ""
 
 
 def _print_report(report) -> None:
@@ -37,12 +64,11 @@ def _print_report(report) -> None:
             if not result.offers:
                 print("  (no eligible offers)")
             for offer in result.offers:
-                bag = " [baggage?]" if offer.needs_bag_verify else ""
-                airline = (offer.airline or "")[:40]
-                duration = offer.duration or "?"
+                times = f"{offer.departure or '?'} -> {offer.arrival or '?'}"
                 print(
-                    f"  {offer.price_eur:>7.0f} €  {duration:<12} "
-                    f"{offer.departure} -> {offer.arrival}  {airline}{bag}"
+                    f"  {offer.price_eur:>7.0f} €  {offer.duration or '?':<12} "
+                    f"{_format_stops(offer.stops_count):<7} {times:<18} "
+                    f"{_format_airline(offer.airline)}{_format_ranking_note(offer)}"
                 )
         elif isinstance(result, QueryFailure):
             print(f"  ERROR: {result.error.message}")
@@ -90,6 +116,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="Offers per query (default 8)",
     )
     flights.add_argument(
+        "--baggage-buffer",
+        type=int,
+        default=DEFAULT_BAGGAGE_BUFFER_EUR,
+        metavar="EUR",
+        help=(
+            f"EUR added to low-cost fares when ranking (default {DEFAULT_BAGGAGE_BUFFER_EUR}, "
+            "0 to rank on fare alone)"
+        ),
+    )
+    flights.add_argument(
         "--save",
         default=None,
         metavar="FILE",
@@ -113,7 +149,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    report = search_flights(queries, top=args.top)
+    report = search_flights(queries, top=args.top, buffer_eur=args.baggage_buffer)
     _print_report(report)
 
     if args.save:
