@@ -53,21 +53,25 @@ def parse_duration_hours(duration: str | None) -> float | None:
     return days * 24.0 + hours + minutes / 60.0
 
 
-def parse_stops_count(stops: object) -> int | None:
+def parse_stops_count(stops: str | None) -> int | None:
     if stops is None:
         return None
-    if isinstance(stops, int):
-        return stops
-    if isinstance(stops, str):
-        text = stops.replace("\xa0", " ").strip()
-        lower = text.lower()
-        if lower in ("unknown",):
-            return None
-        if lower in ("nonstop", "directo", "direct"):
-            return 0
-        m = re.search(r"(\d+)", lower)
-        if m:
-            return int(m.group(1))
+    text = stops.replace("\xa0", " ").strip()
+    lower = text.lower()
+    if lower in ("unknown",):
+        return None
+    if lower in (
+        "nonstop",
+        "non-stop",
+        "directo",
+        "direct",
+        "sin escalas",
+        "sin paradas",
+    ):
+        return 0
+    m = re.search(r"(\d+)", lower)
+    if m:
+        return int(m.group(1))
     return None
 
 

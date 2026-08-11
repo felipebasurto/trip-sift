@@ -78,7 +78,7 @@ Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hote
 
 ### Flights
 
-- Do not change the flight scrape locale away from English. `fast_flights` only parses English stop labels, and any other locale breaks `--max-stops 0`. Hotels stay on Spanish.
+- Keep the flight scrape locale on English (`hl=en`, `locale=en-US`) for stable rendered evidence and the JSON `locale: "en"` contract. Hotels stay on Spanish.
 - Ranking adds 70 EUR to known low-cost fares by default. Report the ranked total, not just the fare. Use `--baggage-buffer 0` for hand luggage only.
 - The low-cost list is partial. Never tell the user an airline includes a bag because it is absent from the list.
 - Remind the user to verify checked baggage on Google Flights before booking.

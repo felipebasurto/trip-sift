@@ -3,17 +3,17 @@
 </p>
 
 <p align="center">
-  <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-172A33">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-172A33">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-52636B">
 </p>
 
-Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. `trip-sift` drives a local Chromium over Google Flights (through [fast-flights](https://pypi.org/project/fast-flights/)) and Booking.com, and hands back typed offers that keep the scraped text next to every parsed number. It is built for scripts and agents that need structured prices, not for browsing.
+Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. `trip-sift` drives a local Chromium over Google Flights and Booking.com, and hands back typed offers that keep the scraped text next to every parsed number. Google Flights query encoding uses [fast-flights](https://pypi.org/project/fast-flights/); card parsing is owned by trip-sift. It is built for scripts and agents that need structured prices, not for browsing.
 
 This is an unofficial project with no affiliation to Google or Booking.com. Either provider can change markup at any time, which may break parsing. Review the [Google Terms of Service](https://policies.google.com/terms), [Booking.com terms](https://www.booking.com/content/terms.html), and your own obligations before use.
 
 ## Install
 
-Needs [uv](https://docs.astral.sh/uv/) and Python 3.9 or newer.
+Needs [uv](https://docs.astral.sh/uv/) and Python 3.10 or newer.
 
 ```bash
 uv sync
@@ -201,7 +201,7 @@ Both run a live search with the same Chromium and the same pacing as the CLI.
 ## Limitations
 
 - Flights are one adult, one-way, economy, and `--max-stops` is `0` or `1`. There is no flag to shorten the delays or to parallelize requests.
-- The flight scrape runs in English because `fast-flights` only parses English stop labels. Prices are still EUR. Hotels scrape in Spanish against our own parser.
+- The flight scrape runs in English (`hl=en`) for stable rendered evidence; prices are still EUR. Hotels scrape in Spanish against our own parser.
 - Flight ranking adds a flat estimate for known low-cost carriers, not a fare quote. The low-cost list is partial, so an airline missing from it is not evidence of a bag-inclusive fare. Confirm the checked bag on Google Flights before booking.
 - Hotel cancellation and property type are reported as observed evidence, and `unknown` means the card did not say. `--entire-home` therefore cannot remove every non-home. Confirm the final total and the cancellation terms on Booking.com before booking.
 - Finding nothing eligible still exits `0` and prints `(no eligible offers)` or `(no eligible stays)`. Widen the filters or check the route.
@@ -225,7 +225,7 @@ uv run python -m unittest discover -s tests -v
 uv run ruff check src tests
 ```
 
-Fully offline. They never launch Chromium and never touch the network. `tests/test_provider_seam.py` drives synthetic markup through the real `fast-flights` parser, because that dependency rewrites text before `trip-sift` ever sees it. CI runs the suite on Python 3.9 through 3.13.
+Fully offline. They never launch Chromium and never touch the network. `tests/test_google_flights.py` pins query encoding and drives synthetic markup through the owned Google Flights card parser. CI runs the suite on Python 3.10 through 3.14.
 
 ## Privacy boundary
 

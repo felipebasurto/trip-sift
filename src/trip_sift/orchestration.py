@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional, Sequence
-
 from trip_sift.models import SearchError, SearchErrorCode
 
 REQUEST_DELAY_SECONDS = 4.5
@@ -24,16 +22,9 @@ def classify_failure(
     exc: BaseException,
     *,
     provider: str,
-    no_results_markers: Sequence[str] = (),
-    no_results_message: Optional[str] = None,
 ) -> SearchError:
     text = f"{type(exc).__name__}: {exc}".strip()
     lowered = text.casefold()
-    if no_results_markers and any(marker in lowered for marker in no_results_markers):
-        return SearchError(
-            code=SearchErrorCode.NO_RESULTS,
-            message=no_results_message or f"{provider} returned no results.",
-        )
     if any(marker in lowered for marker in BROWSER_UNAVAILABLE_MARKERS):
         return SearchError(
             code=SearchErrorCode.BROWSER_UNAVAILABLE,

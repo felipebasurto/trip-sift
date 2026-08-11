@@ -5,14 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trip-sift"
 version = "0.1.0"
-description = "Local Google Flights and Booking.com search via Playwright (EUR; English flight parsing, Spanish hotel parsing)"
+description = "Local Google Flights and Booking.com search via Playwright (EUR; English flight rendering, Spanish hotel parsing)"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "trip-sift contributors" }]
 dependencies = [
-    "fast-flights==2.2",
+    "fast-flights==3.0.2",
     "playwright==1.60.0",
+    "selectolax>=0.3.25",
+    "typing-extensions>=4.4",
 ]
 
 [project.urls]
@@ -28,7 +30,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]

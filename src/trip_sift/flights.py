@@ -7,7 +7,12 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional, Protocol, Sequence, Tuple
 
-from trip_sift.browser import GoogleFlightsSource
+from trip_sift.google_flights import (
+    GoogleFlightsMarkupError,
+    GoogleFlightsSource,
+    NoFlightsFound,
+    RawFlightCard,
+)
 from trip_sift.models import (
     FlightOffer,
     FlightQuery,
@@ -57,34 +62,20 @@ LOW_COST_NAMES = [
     "ZIPAIR",
 ]
 
-NO_RESULTS_MARKERS = ("no flights found",)
 NO_RESULTS_MESSAGE = "Google Flights returned no flights for this route and date."
 
 
 def classify_failure(exc: BaseException) -> SearchError:
-    return classify_provider_failure(
-        exc,
-        provider="Google Flights",
-        no_results_markers=NO_RESULTS_MARKERS,
-        no_results_message=NO_RESULTS_MESSAGE,
-    )
-
-
-class _ProviderOffer(Protocol):
-    name: Optional[str]
-    departure: Optional[str]
-    arrival: Optional[str]
-    price: Optional[str]
-    duration: Optional[str]
-    stops: object
-
-
-class _ProviderResult(Protocol):
-    flights: Sequence[_ProviderOffer]
+    if isinstance(exc, NoFlightsFound):
+        return SearchError(
+            code=SearchErrorCode.NO_RESULTS,
+            message=NO_RESULTS_MESSAGE,
+        )
+    return classify_provider_failure(exc, provider="Google Flights")
 
 
 class _FlightSource(Protocol):
-    def fetch(self, query: FlightQuery) -> _ProviderResult: ...
+    def fetch(self, query: FlightQuery) -> Sequence[RawFlightCard]: ...
 
     def reset(self) -> None: ...
 
@@ -154,17 +145,7 @@ def baggage_buffer_eur(
     return buffer_eur if is_low_cost(airline_text) else 0
 
 
-def _stops_text(stops: object) -> Optional[str]:
-    if stops is None:
-        return None
-    if isinstance(stops, str):
-        return stops
-    if isinstance(stops, int):
-        return "Nonstop" if stops == 0 else f"{stops} stop" + ("s" if stops > 1 else "")
-    return str(stops)
-
-
-def _eligible_stops(stops: object, max_stops: int) -> bool:
+def _eligible_stops(stops: Optional[str], max_stops: int) -> bool:
     count = parse_stops_count(stops)
     if count is not None:
         return count <= max_stops
@@ -172,7 +153,7 @@ def _eligible_stops(stops: object, max_stops: int) -> bool:
 
 
 def _normalize_offer(
-    raw: _ProviderOffer,
+    raw: RawFlightCard,
     max_stops: int,
     *,
     buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
@@ -183,16 +164,16 @@ def _normalize_offer(
         return None
     if not _eligible_stops(raw.stops, max_stops):
         return None
-    airline = raw.name or ""
+    airline = raw.airline or ""
     return FlightOffer(
-        airline=raw.name,
+        airline=raw.airline,
         departure=raw.departure,
         arrival=raw.arrival,
         price=price_text,
         price_eur=price_eur,
         duration=raw.duration,
         duration_hours=parse_duration_hours(raw.duration),
-        stops=_stops_text(raw.stops),
+        stops=raw.stops,
         stops_count=parse_stops_count(raw.stops),
         baggage_buffer_eur=baggage_buffer_eur(airline, buffer_eur=buffer_eur),
         needs_bag_verify=is_low_cost(airline),
@@ -257,23 +238,23 @@ def _run_search(
         failure: Optional[SearchError] = None
         for attempt in range(MAX_ATTEMPTS):
             try:
-                provider_result = source.fetch(query)
+                cards = source.fetch(query)
                 offers = [
                     offer
-                    for raw in provider_result.flights
+                    for raw in cards
                     if (offer := _normalize_offer(raw, query.max_stops, buffer_eur=buffer_eur))
                     is not None
                 ]
                 outcome = QuerySuccess(
                     query=query,
-                    raw_count=len(provider_result.flights),
+                    raw_count=len(cards),
                     offers=_rank_offers(offers, top=top),
                 )
                 break
             except Exception as exc:
                 failure = classify_failure(exc)
                 source.reset()
-                if failure.code in NON_RETRIABLE_CODES:
+                if failure.code in NON_RETRIABLE_CODES or isinstance(exc, GoogleFlightsMarkupError):
                     break
                 if attempt + 1 < MAX_ATTEMPTS:
                     sleep(retry_backoff_seconds(attempt, random_gen))
