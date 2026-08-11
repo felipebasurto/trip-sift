@@ -49,11 +49,12 @@ DURATION_CASES = [
 STOPS_CASES = [
     ("Directo", 0),
     ("Nonstop", 0),
+    ("Non-stop", 0),
     ("Direct", 0),
+    ("Sin escalas", 0),
+    ("Sin paradas", 0),
     ("1 escala", 1),
     ("1 stop", 1),
-    (0, 0),
-    (1, 1),
     ("Unknown", None),
     (None, None),
 ]

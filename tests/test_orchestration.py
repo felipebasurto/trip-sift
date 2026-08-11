@@ -26,19 +26,6 @@ class ClassifyFailureTests(unittest.TestCase):
                 self.assertEqual(error.code, SearchErrorCode.BROWSER_UNAVAILABLE)
                 self.assertIn("playwright install chromium", error.message)
 
-    def test_optional_no_results_markers(self) -> None:
-        error = classify_failure(
-            RuntimeError("No flights found for this route"),
-            provider="Google Flights",
-            no_results_markers=("no flights found",),
-            no_results_message="Google Flights returned no flights for this route and date.",
-        )
-        self.assertEqual(error.code, SearchErrorCode.NO_RESULTS)
-        self.assertEqual(
-            error.message,
-            "Google Flights returned no flights for this route and date.",
-        )
-
     def test_hotels_do_not_treat_empty_pages_as_no_results_by_default(self) -> None:
         error = classify_failure(
             RuntimeError("Booking results page has no recognized result state"),

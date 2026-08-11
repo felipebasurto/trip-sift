@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import dataclass
 from datetime import date, datetime
 from random import Random
-from typing import Optional, Sequence
+from typing import Sequence
 from unittest.mock import patch
 
 from trip_sift.flights import (
     _normalize_offer,
     _rank_offers,
     _run_search,
-    _stops_text,
     classify_failure,
     is_low_cost,
     parse_route_specs,
     search_flights,
 )
+from trip_sift.google_flights import GoogleFlightsMarkupError, NoFlightsFound, RawFlightCard
 from trip_sift.models import (
     FlightOffer,
     FlightQuery,
@@ -33,19 +32,23 @@ from trip_sift.orchestration import (
 )
 
 
-@dataclass
-class FakeOffer:
-    name: Optional[str]
-    departure: Optional[str]
-    arrival: Optional[str]
-    price: Optional[str]
-    duration: Optional[str]
-    stops: object
-
-
-@dataclass
-class FakeResult:
-    flights: Sequence[FakeOffer]
+def card(
+    *,
+    airline: str = "Air",
+    departure: str = "08:00",
+    arrival: str = "09:00",
+    price: str = "99 €",
+    duration: str = "1 h",
+    stops: str = "Nonstop",
+) -> RawFlightCard:
+    return RawFlightCard(
+        airline=airline,
+        departure=departure,
+        arrival=arrival,
+        price=price,
+        duration=duration,
+        stops=stops,
+    )
 
 
 class FakeSource:
@@ -55,7 +58,7 @@ class FakeSource:
         self.reset_calls = 0
         self.closed = False
 
-    def fetch(self, query: FlightQuery) -> FakeResult:
+    def fetch(self, query: FlightQuery) -> Sequence[RawFlightCard]:
         self.fetch_calls += 1
         key = (
             query.origin,
@@ -98,16 +101,15 @@ class LowCostClassificationTests(unittest.TestCase):
     def test_matching_respects_word_boundaries(self) -> None:
         self.assertFalse(is_low_cost("Peachtree Air"))
 
-    def test_integer_stops_keep_a_readable_raw_label(self) -> None:
-        self.assertEqual(_stops_text(0), "Nonstop")
-        self.assertEqual(_stops_text(1), "1 stop")
-        self.assertEqual(_stops_text(2), "2 stops")
-
 
 class FailureClassificationTests(unittest.TestCase):
     def test_empty_results_are_not_a_fetch_failure(self) -> None:
-        error = classify_failure(RuntimeError("No flights found:\n<html/>"))
+        error = classify_failure(NoFlightsFound("No options matching your search"))
         self.assertEqual(error.code, SearchErrorCode.NO_RESULTS)
+        self.assertEqual(
+            error.message,
+            "Google Flights returned no flights for this route and date.",
+        )
 
     def test_missing_chromium_is_reported_as_browser_unavailable(self) -> None:
         error = classify_failure(
@@ -115,6 +117,11 @@ class FailureClassificationTests(unittest.TestCase):
         )
         self.assertEqual(error.code, SearchErrorCode.BROWSER_UNAVAILABLE)
         self.assertIn("playwright install chromium", error.message)
+
+    def test_markup_errors_are_fetch_failures(self) -> None:
+        error = classify_failure(GoogleFlightsMarkupError("no results grid"))
+        self.assertEqual(error.code, SearchErrorCode.FETCH_FAILED)
+        self.assertIn("no results grid", error.message)
 
     def test_unrecognised_failures_keep_their_original_text(self) -> None:
         error = classify_failure(TimeoutError("Timeout 60000ms exceeded"))
@@ -137,7 +144,7 @@ class NonRetriableFailureTests(unittest.TestCase):
         return report.queries[0], source, sleeps
 
     def test_no_results_is_not_retried(self) -> None:
-        outcome, source, sleeps = self._run(RuntimeError("No flights found:\n<html/>"))
+        outcome, source, sleeps = self._run(NoFlightsFound())
         self.assertEqual(source.fetch_calls, 1)
         self.assertEqual(sleeps, [])
         self.assertEqual(outcome.error.code, SearchErrorCode.NO_RESULTS)
@@ -147,6 +154,12 @@ class NonRetriableFailureTests(unittest.TestCase):
         self.assertEqual(source.fetch_calls, 1)
         self.assertEqual(sleeps, [])
         self.assertEqual(outcome.error.code, SearchErrorCode.BROWSER_UNAVAILABLE)
+
+    def test_markup_errors_are_not_retried(self) -> None:
+        outcome, source, sleeps = self._run(GoogleFlightsMarkupError("selectors rotted"))
+        self.assertEqual(source.fetch_calls, 1)
+        self.assertEqual(sleeps, [])
+        self.assertEqual(outcome.error.code, SearchErrorCode.FETCH_FAILED)
 
     def test_transient_failures_are_still_retried(self) -> None:
         outcome, source, sleeps = self._run(RuntimeError("network"))
@@ -164,10 +177,8 @@ class ProgressTests(unittest.TestCase):
         )
         source = FakeSource(
             {
-                ("MAD", "BCN", "2026-09-01", 1): FakeResult(
-                    flights=[FakeOffer("Air", "08:00", "09:00", "99 €", "1 h", 0)]
-                ),
-                ("MAD", "LHR", "2026-09-02", 1): RuntimeError("No flights found:\n"),
+                ("MAD", "BCN", "2026-09-01", 1): (card(),),
+                ("MAD", "LHR", "2026-09-02", 1): NoFlightsFound(),
             }
         )
         _run_search(
@@ -188,14 +199,9 @@ class FlightsOrchestrationTests(unittest.TestCase):
     def test_retry_reset_backoff_and_continue(self) -> None:
         q_ok = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
         q_fail = FlightQuery("MAD", "LHR", date(2026, 9, 2), max_stops=1)
-        ok_result = FakeResult(
-            flights=[
-                FakeOffer("Air One", "08:00", "09:00", "99 €", "1 h", 0),
-            ]
-        )
         source = FakeSource(
             {
-                ("MAD", "BCN", "2026-09-01", 1): ok_result,
+                ("MAD", "BCN", "2026-09-01", 1): (card(airline="Air One"),),
                 ("MAD", "LHR", "2026-09-02", 1): RuntimeError("network"),
             }
         )
@@ -223,18 +229,18 @@ class FlightsOrchestrationTests(unittest.TestCase):
         self.assertEqual(report.queries[1].error.code.value, "fetch_failed")
         self.assertEqual(len(sleeps), len(expected_backoffs) + 1)
         self.assertAlmostEqual(sleeps[0], inter_query)
-        for got, want in zip(sleeps[1:], expected_backoffs):
+        for got, want in zip(sleeps[1:], expected_backoffs, strict=True):
             self.assertAlmostEqual(got, want)
 
     def test_max_stops_zero_keeps_only_nonstop(self) -> None:
-        nonstop = FakeOffer("Air", "08:00", "09:00", "100 €", "1 h", 0)
-        one_stop = FakeOffer("Air", "10:00", "13:00", "80 €", "3 h", 1)
+        nonstop = card(stops="Nonstop", price="100 €")
+        one_stop = card(stops="1 stop", price="80 €", departure="10:00", arrival="13:00")
         self.assertIsNotNone(_normalize_offer(nonstop, max_stops=0))
         self.assertIsNone(_normalize_offer(one_stop, max_stops=0))
         self.assertIsNotNone(_normalize_offer(one_stop, max_stops=1))
 
     def test_unlabelled_stops_are_rejected_when_only_direct_flights_are_wanted(self) -> None:
-        unknown = FakeOffer("Air", "14:00", "15:00", "90 €", "1 h", "Unknown")
+        unknown = card(stops="Unknown", price="90 €", departure="14:00", arrival="15:00")
         self.assertIsNone(_normalize_offer(unknown, max_stops=0))
         self.assertIsNotNone(_normalize_offer(unknown, max_stops=1))
 
@@ -286,13 +292,21 @@ class FlightsOrchestrationTests(unittest.TestCase):
         self.assertEqual(ranked[1].airline, "Ryanair")
 
     def test_raw_normalized_pairing(self) -> None:
-        raw = FakeOffer("Air", "08:40", "11:30", "129 €", "2 h 50 min", 0)
+        raw = card(
+            airline="Air",
+            departure="08:40",
+            arrival="11:30",
+            price="129 €",
+            duration="2 h 50 min",
+            stops="Nonstop",
+        )
         offer = _normalize_offer(raw, max_stops=1)
         assert offer is not None
         self.assertEqual(offer.price, "129 €")
         self.assertEqual(offer.price_eur, 129.0)
         self.assertEqual(offer.duration, "2 h 50 min")
         self.assertAlmostEqual(offer.duration_hours or 0, 2 + 50 / 60)
+        self.assertEqual(offer.stops, "Nonstop")
         self.assertEqual(offer.stops_count, 0)
 
     def test_dedupe_keeps_flights_that_differ_only_in_stops(self) -> None:
@@ -321,22 +335,7 @@ class FlightsOrchestrationTests(unittest.TestCase):
 
     def test_search_closes_source(self) -> None:
         query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
-        source = FakeSource(
-            {
-                ("MAD", "BCN", "2026-09-01", 1): FakeResult(
-                    flights=[
-                        FakeOffer(
-                            "Air One",
-                            "08:00",
-                            "09:00",
-                            "99 €",
-                            "1 h",
-                            0,
-                        )
-                    ]
-                )
-            }
-        )
+        source = FakeSource({("MAD", "BCN", "2026-09-01", 1): (card(airline="Air One"),)})
         with patch("trip_sift.flights.GoogleFlightsSource", return_value=source):
             search_flights((query,), top=1)
         self.assertTrue(source.closed)

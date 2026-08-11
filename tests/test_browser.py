@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,9 +9,7 @@ from trip_sift.browser import (
     BLOCKED_RESOURCE_TYPES,
     BrowserSessionConfig,
     ChromiumSession,
-    GoogleFlightsSource,
 )
-from trip_sift.models import FlightQuery
 
 
 class FakeRequest:
@@ -223,24 +220,6 @@ class ChromiumSessionTests(unittest.TestCase):
         self.assertTrue(browser.closed)
         self.assertTrue(playwright.stopped)
         self.assertIsNone(session._context)
-
-
-class GoogleFlightsSourceTests(unittest.TestCase):
-    def test_fetch_params_pin_english_locale_and_euro(self) -> None:
-        params = GoogleFlightsSource._fetch_params(
-            GoogleFlightsSource._build_tfs(
-                FlightQuery("MAD", "BCN", date(2026, 12, 4), max_stops=0)
-            )
-        )
-        self.assertEqual(params["hl"], "en")
-        self.assertEqual(params["curr"], "EUR")
-        self.assertTrue(params["tfs"])
-
-    def test_build_tfs_encodes_max_stops(self) -> None:
-        tfs = GoogleFlightsSource._build_tfs(
-            FlightQuery("MAD", "BCN", date(2026, 12, 4), max_stops=0)
-        )
-        self.assertEqual(tfs.max_stops, 0)
 
 
 if __name__ == "__main__":
