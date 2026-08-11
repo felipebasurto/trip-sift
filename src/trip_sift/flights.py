@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import atexit
 import contextlib
-import io
 import json
 import os
 import random
@@ -15,7 +14,7 @@ from typing import Callable, Optional, Protocol, Sequence, Tuple
 from fast_flights import FlightData, Passengers
 from fast_flights.core import parse_response
 from fast_flights.filter import TFSData
-from fast_flights.schema import Flight, Result
+from fast_flights.schema import Result
 
 from trip_sift.models import (
     FlightOffer,
@@ -69,6 +68,38 @@ CONSENT_SELECTORS = [
 ]
 
 BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
+
+NO_RESULTS_MARKERS = ("no flights found",)
+BROWSER_UNAVAILABLE_MARKERS = (
+    "executable doesn't exist",
+    "playwright install",
+    "browsertype.launch",
+    "no module named 'playwright'",
+)
+
+
+def classify_failure(exc: BaseException) -> SearchError:
+    text = f"{type(exc).__name__}: {exc}".strip()
+    lowered = text.casefold()
+    if any(marker in lowered for marker in NO_RESULTS_MARKERS):
+        return SearchError(
+            code=SearchErrorCode.NO_RESULTS,
+            message="Google Flights returned no flights for this route and date.",
+        )
+    if any(marker in lowered for marker in BROWSER_UNAVAILABLE_MARKERS):
+        return SearchError(
+            code=SearchErrorCode.BROWSER_UNAVAILABLE,
+            message=(
+                "Chromium is not available to Playwright. "
+                "Run 'playwright install chromium'."
+            ),
+        )
+    return SearchError(code=SearchErrorCode.FETCH_FAILED, message=text)
+
+
+NON_RETRIABLE_CODES = frozenset(
+    {SearchErrorCode.NO_RESULTS, SearchErrorCode.BROWSER_UNAVAILABLE}
+)
 
 
 class _ProviderOffer(Protocol):
@@ -262,10 +293,17 @@ def _run_search(
     random_gen: random.Random,
     now: Callable[[], datetime],
     buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
+    progress: Optional[Callable[[str], None]] = None,
 ) -> SearchReport:
+    report_progress = progress or (lambda _: None)
     results: list[QueryResult] = []
     for index, query in enumerate(queries):
+        report_progress(
+            f"[{index + 1}/{len(queries)}] {query.origin} -> {query.destination} "
+            f"{query.departure_date.isoformat()}"
+        )
         outcome: Optional[QueryResult] = None
+        failure: Optional[SearchError] = None
         for attempt in range(MAX_ATTEMPTS):
             try:
                 provider_result = source.fetch(query)
@@ -285,8 +323,11 @@ def _run_search(
                     offers=_rank_offers(offers, top=top),
                 )
                 break
-            except Exception:
+            except Exception as exc:
+                failure = classify_failure(exc)
                 source.reset()
+                if failure.code in NON_RETRIABLE_CODES:
+                    break
                 if attempt + 1 < MAX_ATTEMPTS:
                     backoff = BACKOFF_BASE_SECONDS * (2**attempt) + random_gen.uniform(
                         0, BACKOFF_JITTER_SECONDS
@@ -295,11 +336,13 @@ def _run_search(
         if outcome is None:
             outcome = QueryFailure(
                 query=query,
-                error=SearchError(
+                error=failure
+                or SearchError(
                     code=SearchErrorCode.FETCH_FAILED,
-                    message="Google Flights search failed after 3 attempts.",
+                    message="Google Flights search failed.",
                 ),
             )
+            report_progress(f"  {outcome.error.code.value}: {outcome.error.message}")
         results.append(outcome)
         if index + 1 < len(queries):
             delay = REQUEST_DELAY_SECONDS + random_gen.uniform(0, REQUEST_JITTER_SECONDS)
@@ -312,6 +355,7 @@ def search_flights(
     *,
     top: int = 8,
     buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
+    progress: Optional[Callable[[str], None]] = None,
 ) -> SearchReport:
     if not queries:
         raise ValueError("at least one query is required")
@@ -330,6 +374,7 @@ def search_flights(
             random_gen=random.Random(),
             now=lambda: datetime.utcnow(),
             buffer_eur=buffer_eur,
+            progress=progress,
         )
     finally:
         source.close()
@@ -432,11 +477,7 @@ class _GoogleFlightsSource:
         params = self._fetch_params(tfs)
         qs = "&".join(f"{k}={v}" for k, v in params.items())
         url = f"https://www.google.com/travel/flights?{qs}"
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
-            io.StringIO()
-        ):
-            response = _HtmlResponse(self._fetch_html(url))
-        return parse_response(response)
+        return parse_response(_HtmlResponse(self._fetch_html(url)))
 
     def reset(self) -> None:
         if self._context is not None:

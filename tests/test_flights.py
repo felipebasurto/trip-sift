@@ -20,12 +20,20 @@ from trip_sift.flights import (
     _rank_offers,
     _run_search,
     _stops_text,
+    classify_failure,
     is_low_cost,
     parse_route_specs,
     search_flights,
     write_report_atomic,
 )
-from trip_sift.models import FlightOffer, FlightQuery, QueryFailure, QuerySuccess, SearchReport
+from trip_sift.models import (
+    FlightOffer,
+    FlightQuery,
+    QueryFailure,
+    QuerySuccess,
+    SearchErrorCode,
+    SearchReport,
+)
 
 
 @dataclass
@@ -97,6 +105,86 @@ class LowCostClassificationTests(unittest.TestCase):
         self.assertEqual(_stops_text(0), "Nonstop")
         self.assertEqual(_stops_text(1), "1 stop")
         self.assertEqual(_stops_text(2), "2 stops")
+
+
+class FailureClassificationTests(unittest.TestCase):
+    def test_empty_results_are_not_a_fetch_failure(self) -> None:
+        error = classify_failure(RuntimeError("No flights found:\n<html/>"))
+        self.assertEqual(error.code, SearchErrorCode.NO_RESULTS)
+
+    def test_missing_chromium_is_reported_as_browser_unavailable(self) -> None:
+        error = classify_failure(
+            RuntimeError("Executable doesn't exist at /ms-playwright/chromium/headless")
+        )
+        self.assertEqual(error.code, SearchErrorCode.BROWSER_UNAVAILABLE)
+        self.assertIn("playwright install chromium", error.message)
+
+    def test_unrecognised_failures_keep_their_original_text(self) -> None:
+        error = classify_failure(TimeoutError("Timeout 60000ms exceeded"))
+        self.assertEqual(error.code, SearchErrorCode.FETCH_FAILED)
+        self.assertIn("Timeout 60000ms exceeded", error.message)
+
+
+class NonRetriableFailureTests(unittest.TestCase):
+    def _run(self, exc: Exception) -> tuple:
+        source = FakeSource({("MAD", "BCN", "2026-09-01", 1): exc})
+        sleeps: list[float] = []
+        report = _run_search(
+            (FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1),),
+            top=8,
+            source=source,
+            sleep=sleeps.append,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10),
+        )
+        return report.queries[0], source, sleeps
+
+    def test_no_results_is_not_retried(self) -> None:
+        outcome, source, sleeps = self._run(RuntimeError("No flights found:\n<html/>"))
+        self.assertEqual(source.fetch_calls, 1)
+        self.assertEqual(sleeps, [])
+        self.assertEqual(outcome.error.code, SearchErrorCode.NO_RESULTS)
+
+    def test_missing_browser_is_not_retried(self) -> None:
+        outcome, source, sleeps = self._run(RuntimeError("Executable doesn't exist"))
+        self.assertEqual(source.fetch_calls, 1)
+        self.assertEqual(sleeps, [])
+        self.assertEqual(outcome.error.code, SearchErrorCode.BROWSER_UNAVAILABLE)
+
+    def test_transient_failures_are_still_retried(self) -> None:
+        outcome, source, sleeps = self._run(RuntimeError("network"))
+        self.assertEqual(source.fetch_calls, MAX_ATTEMPTS)
+        self.assertEqual(len(sleeps), MAX_ATTEMPTS - 1)
+        self.assertEqual(outcome.error.code, SearchErrorCode.FETCH_FAILED)
+
+
+class ProgressTests(unittest.TestCase):
+    def test_each_query_is_announced_before_it_runs(self) -> None:
+        lines: list[str] = []
+        queries = (
+            FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1),
+            FlightQuery("MAD", "LHR", date(2026, 9, 2), max_stops=1),
+        )
+        source = FakeSource(
+            {
+                ("MAD", "BCN", "2026-09-01", 1): FakeResult(
+                    flights=[FakeOffer("Air", "08:00", "09:00", "99 €", "1 h", 0)]
+                ),
+                ("MAD", "LHR", "2026-09-02", 1): RuntimeError("No flights found:\n"),
+            }
+        )
+        _run_search(
+            queries,
+            top=8,
+            source=source,
+            sleep=lambda _: None,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10),
+            progress=lines.append,
+        )
+        self.assertIn("[1/2] MAD -> BCN 2026-09-01", lines)
+        self.assertIn("[2/2] MAD -> LHR 2026-09-02", lines)
+        self.assertTrue(any("no_results" in line for line in lines))
 
 
 class FlightsOrchestrationTests(unittest.TestCase):

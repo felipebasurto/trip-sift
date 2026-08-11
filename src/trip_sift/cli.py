@@ -149,7 +149,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    report = search_flights(queries, top=args.top, buffer_eur=args.baggage_buffer)
+    report = search_flights(
+        queries,
+        top=args.top,
+        buffer_eur=args.baggage_buffer,
+        progress=lambda line: print(line, file=sys.stderr),
+    )
     _print_report(report)
 
     if args.save:

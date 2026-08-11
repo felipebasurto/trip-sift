@@ -70,6 +70,8 @@ class FlightOffer:
 
 class SearchErrorCode(str, Enum):
     FETCH_FAILED = "fetch_failed"
+    NO_RESULTS = "no_results"
+    BROWSER_UNAVAILABLE = "browser_unavailable"
 
 
 @dataclass(frozen=True)
