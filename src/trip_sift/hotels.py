@@ -6,7 +6,7 @@ import os
 import random
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional, Protocol, Sequence, Tuple
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
@@ -272,7 +272,7 @@ def search_hotels(
             source=source,
             sleep=time.sleep,
             random_gen=random.Random(),
-            now=datetime.utcnow,
+            now=lambda: datetime.now(timezone.utc),
         )
     finally:
         source.close()
