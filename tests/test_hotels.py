@@ -493,11 +493,7 @@ class HotelOrchestrationTests(unittest.TestCase):
 
     def test_missing_chromium_fails_immediately_without_backoff(self) -> None:
         source = FakeSource(
-            [
-                RuntimeError(
-                    "Executable doesn't exist at /ms-playwright/chromium/headless"
-                )
-            ]
+            [RuntimeError("Executable doesn't exist at /ms-playwright/chromium/headless")]
         )
         sleeps: List[float] = []
 
