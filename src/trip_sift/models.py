@@ -144,3 +144,181 @@ class SearchReport:
             "locale": self.locale,
             "queries": [result.to_dict() for result in self.queries],
         }
+
+
+class CancellationEvidence(str, Enum):
+    FREE = "free"
+    NON_REFUNDABLE = "non_refundable"
+    UNKNOWN = "unknown"
+
+
+class PropertyTypeEvidence(str, Enum):
+    ENTIRE_HOME = "entire_home"
+    NOT_ENTIRE_HOME = "not_entire_home"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class HotelQuery:
+    location: str
+    check_in: date
+    check_out: date
+    adults: int = 2
+    rooms: int = 1
+    min_rating: Optional[float] = None
+    entire_home: bool = False
+    free_cancellation: bool = True
+
+    def __post_init__(self) -> None:
+        location = " ".join(self.location.split())
+        if not location:
+            raise ValueError("location must not be blank")
+        if self.check_out <= self.check_in:
+            raise ValueError("check_out must be after check_in")
+        if self.adults <= 0:
+            raise ValueError("adults must be positive")
+        if self.rooms <= 0:
+            raise ValueError("rooms must be positive")
+        if self.min_rating is not None and not 0.0 <= self.min_rating <= 10.0:
+            raise ValueError("min_rating must be between 0.0 and 10.0")
+        object.__setattr__(self, "location", location)
+
+    @property
+    def nights(self) -> int:
+        return (self.check_out - self.check_in).days
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "location": self.location,
+            "check_in": self.check_in.isoformat(),
+            "check_out": self.check_out.isoformat(),
+            "adults": self.adults,
+            "rooms": self.rooms,
+            "min_rating": self.min_rating,
+            "entire_home": self.entire_home,
+            "free_cancellation": self.free_cancellation,
+            "nights": self.nights,
+        }
+
+
+@dataclass(frozen=True)
+class AppliedHotelFilters:
+    chips: Tuple[str, ...]
+    url: str
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "chips": list(self.chips),
+            "url": self.url,
+        }
+
+
+@dataclass(frozen=True)
+class HotelOffer:
+    title: str
+    address: Optional[str]
+    total_price: str
+    total_price_eur: float
+    rating: Optional[str]
+    rating_score: Optional[float]
+    details: str
+    cancellation_evidence: CancellationEvidence
+    property_type_evidence: PropertyTypeEvidence
+    bedrooms: Optional[int]
+    bathrooms: Optional[int]
+    beds: Optional[int]
+    link: Optional[str]
+
+    def __post_init__(self) -> None:
+        title = self.title.strip()
+        if not title:
+            raise ValueError("title must not be blank")
+        if self.total_price_eur <= 0:
+            raise ValueError("total_price_eur must be positive")
+        if self.rating_score is not None and not 0.0 <= self.rating_score <= 10.0:
+            raise ValueError("rating_score must be between 0.0 and 10.0")
+        object.__setattr__(self, "title", title)
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "title": self.title,
+            "address": self.address,
+            "total_price": self.total_price,
+            "total_price_eur": self.total_price_eur,
+            "rating": self.rating,
+            "rating_score": self.rating_score,
+            "details": self.details,
+            "cancellation_evidence": self.cancellation_evidence.value,
+            "property_type_evidence": self.property_type_evidence.value,
+            "bedrooms": self.bedrooms,
+            "bathrooms": self.bathrooms,
+            "beds": self.beds,
+            "link": self.link,
+        }
+
+
+@dataclass(frozen=True)
+class HotelQuerySuccess:
+    query: HotelQuery
+    applied: AppliedHotelFilters
+    raw_count: int
+    eligible_count: int
+    offers: Tuple[HotelOffer, ...]
+    status: Literal["ok"] = field(init=False, default="ok")
+
+    def __post_init__(self) -> None:
+        if self.raw_count < self.eligible_count:
+            raise ValueError("raw_count must be >= eligible_count")
+        if self.eligible_count < len(self.offers):
+            raise ValueError("eligible_count must be >= number of offers")
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "status": self.status,
+            "query": self.query.to_dict(),
+            "applied": self.applied.to_dict(),
+            "raw_count": self.raw_count,
+            "eligible_count": self.eligible_count,
+            "offers": [offer.to_dict() for offer in self.offers],
+        }
+
+
+@dataclass(frozen=True)
+class HotelQueryFailure:
+    query: HotelQuery
+    applied: AppliedHotelFilters
+    error: SearchError
+    status: Literal["error"] = field(init=False, default="error")
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "status": self.status,
+            "query": self.query.to_dict(),
+            "applied": self.applied.to_dict(),
+            "error": self.error.to_dict(),
+        }
+
+
+HotelQueryResult = Union[HotelQuerySuccess, HotelQueryFailure]
+
+
+@dataclass(frozen=True)
+class HotelSearchReport:
+    searched_at: datetime
+    queries: Tuple[HotelQueryResult, ...]
+    schema_version: int = field(init=False, default=1)
+    provider: Literal["booking.com"] = field(init=False, default="booking.com")
+    currency: Literal["EUR"] = field(init=False, default="EUR")
+    locale: Literal["es"] = field(init=False, default="es")
+    price_basis: Literal["total_stay"] = field(init=False, default="total_stay")
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "provider": self.provider,
+            "searched_at": self.searched_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "currency": self.currency,
+            "locale": self.locale,
+            "price_basis": self.price_basis,
+            "queries": [result.to_dict() for result in self.queries],
+        }

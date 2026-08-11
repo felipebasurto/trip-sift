@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
 import random
 import re
 import time
@@ -21,6 +19,7 @@ from trip_sift.models import (
     SearchReport,
 )
 from trip_sift.parsers import parse_duration_hours, parse_price_eur, parse_stops_count
+from trip_sift.storage import default_state_dir, write_json_atomic
 
 REQUEST_DELAY_SECONDS = 4.5
 REQUEST_JITTER_SECONDS = 1.5
@@ -102,16 +101,6 @@ class _FlightSource(Protocol):
     def reset(self) -> None: ...
 
     def close(self) -> None: ...
-
-
-def default_state_dir() -> Path:
-    env = os.environ.get("TRIP_SIFT_STATE_DIR")
-    if env:
-        return Path(env)
-    xdg = os.environ.get("XDG_STATE_HOME")
-    if xdg:
-        return Path(xdg) / "trip-sift"
-    return Path.home() / ".local" / "state" / "trip-sift"
 
 
 def parse_route_specs(
@@ -350,8 +339,4 @@ def search_flights(
 
 
 def write_report_atomic(report: SearchReport, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(report.to_dict(), indent=2, ensure_ascii=False)
-    tmp = destination.with_suffix(destination.suffix + ".tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, destination)
+    write_json_atomic(report.to_dict(), destination)

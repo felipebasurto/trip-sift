@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import json
-import tempfile
 import unittest
 from dataclasses import dataclass
 from datetime import date, datetime
-from pathlib import Path
 from random import Random
 from typing import Optional, Sequence
 from unittest.mock import patch
@@ -24,7 +21,6 @@ from trip_sift.flights import (
     is_low_cost,
     parse_route_specs,
     search_flights,
-    write_report_atomic,
 )
 from trip_sift.models import (
     FlightOffer,
@@ -32,7 +28,6 @@ from trip_sift.models import (
     QueryFailure,
     QuerySuccess,
     SearchErrorCode,
-    SearchReport,
 )
 
 
@@ -321,18 +316,6 @@ class FlightsOrchestrationTests(unittest.TestCase):
         queries = parse_route_specs(["MAD-BCN:2026-09-01,2026-09-02"], max_stops=0)
         self.assertEqual(len(queries), 2)
         self.assertEqual(queries[0].max_stops, 0)
-
-    def test_write_report_atomic(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "nested" / "out.json"
-            report = SearchReport(
-                searched_at=datetime(2026, 8, 10, 9, 0, 0),
-                queries=(),
-            )
-            write_report_atomic(report, path)
-            self.assertTrue(path.exists())
-            data = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(data["schema_version"], 1)
 
     def test_search_closes_source(self) -> None:
         query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
