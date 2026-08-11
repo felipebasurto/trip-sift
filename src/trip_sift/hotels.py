@@ -83,14 +83,11 @@ class _HotelSource(Protocol):
         query: HotelQuery,
         applied: AppliedHotelFilters,
         limit: int,
-    ) -> _HotelPage:
-        ...
+    ) -> _HotelPage: ...
 
-    def reset(self) -> None:
-        ...
+    def reset(self) -> None: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
 
 def build_applied_filters(query: HotelQuery) -> AppliedHotelFilters:
@@ -151,10 +148,7 @@ def _is_eligible(offer: HotelOffer, query: HotelQuery) -> bool:
         and offer.cancellation_evidence is CancellationEvidence.NON_REFUNDABLE
     ):
         return False
-    if (
-        query.entire_home
-        and offer.property_type_evidence is PropertyTypeEvidence.NOT_ENTIRE_HOME
-    ):
+    if query.entire_home and offer.property_type_evidence is PropertyTypeEvidence.NOT_ENTIRE_HOME:
         return False
     return True
 
@@ -222,13 +216,9 @@ def _run_search(
             try:
                 page = source.fetch(query, applied, fetch_limit)
                 normalized = tuple(
-                    offer
-                    for raw in page.cards
-                    if (offer := _normalize_card(raw)) is not None
+                    offer for raw in page.cards if (offer := _normalize_card(raw)) is not None
                 )
-                eligible = tuple(
-                    offer for offer in normalized if _is_eligible(offer, query)
-                )
+                eligible = tuple(offer for offer in normalized if _is_eligible(offer, query))
                 rank_limit = max(top, len(eligible))
                 ranked = _rank_offers(
                     eligible,
@@ -260,9 +250,7 @@ def _run_search(
             )
         results.append(outcome)
         if index + 1 < len(queries):
-            delay = REQUEST_DELAY_SECONDS + random_gen.uniform(
-                0, REQUEST_JITTER_SECONDS
-            )
+            delay = REQUEST_DELAY_SECONDS + random_gen.uniform(0, REQUEST_JITTER_SECONDS)
             sleep(delay)
     return HotelSearchReport(searched_at=now(), queries=tuple(results))
 
@@ -356,18 +344,14 @@ class _BookingHotelsSource:
     @classmethod
     def _extract_card(cls, card) -> Optional[_RawHotelCard]:
         title_element = card.query_selector('[data-testid="title"]')
-        price_element = card.query_selector(
-            '[data-testid="price-and-discounted-price"]'
-        )
+        price_element = card.query_selector('[data-testid="price-and-discounted-price"]')
         if title_element is None:
             return None
 
         title = title_element.inner_text().strip()
         if not title:
             return None
-        total_price = (
-            price_element.inner_text().strip() if price_element is not None else ""
-        )
+        total_price = price_element.inner_text().strip() if price_element is not None else ""
 
         rating_element = card.query_selector('[data-testid="review-score"]')
         address_element = card.query_selector('[data-testid="address-link"]')
@@ -379,11 +363,7 @@ class _BookingHotelsSource:
         if rating_element is not None:
             rating_text = rating_element.inner_text()
             rating = rating_text.splitlines()[0].strip() if rating_text else None
-        address = (
-            address_element.inner_text().strip()
-            if address_element is not None
-            else None
-        )
+        address = address_element.inner_text().strip() if address_element is not None else None
         link = (
             cls._clean_link(link_element.get_attribute("href"))
             if link_element is not None
@@ -424,9 +404,7 @@ class _BookingHotelsSource:
                 timeout=60_000,
             )
             self._dismiss_consent(page)
-            result_selector = ", ".join(
-                (PROPERTY_CARD_SELECTOR,) + EMPTY_STATE_SELECTORS
-            )
+            result_selector = ", ".join((PROPERTY_CARD_SELECTOR,) + EMPTY_STATE_SELECTORS)
             page.locator(result_selector).first.wait_for(timeout=20_000)
             provider_cards = page.query_selector_all(PROPERTY_CARD_SELECTOR)
             if not provider_cards:

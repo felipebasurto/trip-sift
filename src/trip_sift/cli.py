@@ -4,13 +4,19 @@ import argparse
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
-from trip_sift.flights import parse_route_specs, search_flights, write_report_atomic
+from trip_sift.flights import (
+    DEFAULT_BAGGAGE_BUFFER_EUR,
+    parse_route_specs,
+    search_flights,
+    write_report_atomic,
+)
 from trip_sift.hotels import search_hotels, write_hotel_report_atomic
 from trip_sift.models import (
     AppliedHotelFilters,
     CancellationEvidence,
+    FlightQuery,
     HotelQuery,
     HotelQueryFailure,
     HotelQuerySuccess,
@@ -18,7 +24,6 @@ from trip_sift.models import (
     QueryFailure,
     QuerySuccess,
 )
-
 
 FLIGHTS_EXAMPLES = """\
 Examples:
@@ -31,16 +36,42 @@ HOTELS_EXAMPLES = """\
 Examples:
   trip-sift hotels Prague 2026-12-04 2026-12-07
   trip-sift hotels "Prague, Czech Republic" 2026-12-04 2026-12-10 --top 5
-  trip-sift hotels Prague 2026-12-04 2026-12-07 --entire-home --min-rating 8.5 --save results/hotels.json
+  trip-sift hotels Prague 2026-12-04 2026-12-07 --entire-home --min-rating 8.5
+  trip-sift hotels Prague 2026-12-04 2026-12-07 --save results/hotels.json
 """
 
 
-def _validate_flight_args(args: argparse.Namespace) -> None:
-    if args.max_stops not in (0, 1):
-        raise ValueError("--max-stops must be 0 or 1")
+def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
     if args.top <= 0:
         raise ValueError("--top must be a positive integer")
-    parse_route_specs(args.routes, max_stops=args.max_stops)
+    if args.baggage_buffer < 0:
+        raise ValueError("--baggage-buffer must not be negative")
+    queries = parse_route_specs(args.routes, max_stops=args.max_stops)
+    today = date.today()
+    for query in queries:
+        if query.departure_date < today:
+            raise ValueError(f"departure date is in the past: {query.departure_date.isoformat()}")
+    return queries
+
+
+def _format_stops(stops_count: Optional[int]) -> str:
+    if stops_count is None:
+        return "?"
+    if stops_count == 0:
+        return "direct"
+    return f"{stops_count} stop" + ("s" if stops_count > 1 else "")
+
+
+def _format_airline(airline: Optional[str]) -> str:
+    text = airline or "?"
+    return text if len(text) <= 40 else text[:39] + "…"
+
+
+def _format_ranking_note(offer) -> str:
+    if offer.baggage_buffer_eur:
+        total = offer.price_eur + offer.baggage_buffer_eur
+        return f"  (+{offer.baggage_buffer_eur} bag = {total:.0f} € ranked)"
+    return "  [baggage?]" if offer.needs_bag_verify else ""
 
 
 def _parse_iso_date(value: str, label: str) -> date:
@@ -83,12 +114,11 @@ def _print_report(report) -> None:
             if not result.offers:
                 print("  (no eligible offers)")
             for offer in result.offers:
-                bag = " [baggage?]" if offer.needs_bag_verify else ""
-                airline = (offer.airline or "")[:40]
-                duration = offer.duration or "?"
+                times = f"{offer.departure or '?'} -> {offer.arrival or '?'}"
                 print(
-                    f"  {offer.price_eur:>7.0f} €  {duration:<12} "
-                    f"{offer.departure} -> {offer.arrival}  {airline}{bag}"
+                    f"  {offer.price_eur:>7.0f} €  {offer.duration or '?':<12} "
+                    f"{_format_stops(offer.stops_count):<7} {times:<18} "
+                    f"{_format_airline(offer.airline)}{_format_ranking_note(offer)}"
                 )
         elif isinstance(result, QueryFailure):
             print(f"  ERROR: {result.error.message}")
@@ -102,8 +132,7 @@ def _format_hotel_filter_gloss(query: HotelQuery) -> str:
         parts.append("Non-refundable rates allowed")
     if query.entire_home:
         parts.append(
-            "Entire homes/apartments required "
-            "(cards with unknown property type may remain)"
+            "Entire homes/apartments required (cards with unknown property type may remain)"
         )
     if query.min_rating is not None:
         parts.append(f"Minimum rating {query.min_rating:g}")
@@ -152,15 +181,10 @@ def _print_hotel_report(report) -> None:
             for offer in result.offers:
                 rating = offer.rating or "-"
                 address = f"  {offer.address}" if offer.address else ""
-                print(
-                    f"  {offer.total_price} total stay  "
-                    f"rating {rating}  {offer.title}{address}"
-                )
+                print(f"  {offer.total_price} total stay  rating {rating}  {offer.title}{address}")
                 print(f"    {_format_cancellation_evidence(offer.cancellation_evidence)}")
                 if query.entire_home:
-                    print(
-                        f"    {_format_property_type_evidence(offer.property_type_evidence)}"
-                    )
+                    print(f"    {_format_property_type_evidence(offer.property_type_evidence)}")
             print(
                 f"  Raw cards: {result.raw_count}; "
                 f"eligible: {result.eligible_count}; "
@@ -186,13 +210,17 @@ def _exit_code(report) -> int:
 
 def _run_flights(args: argparse.Namespace) -> int:
     try:
-        _validate_flight_args(args)
-        queries = parse_route_specs(args.routes, max_stops=args.max_stops)
+        queries = _parse_and_validate(args)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    report = search_flights(queries, top=args.top)
+    report = search_flights(
+        queries,
+        top=args.top,
+        buffer_eur=args.baggage_buffer,
+        progress=lambda line: print(line, file=sys.stderr),
+    )
     _print_report(report)
 
     if args.save:
@@ -223,7 +251,7 @@ def _run_hotels(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Search Google Flights and Booking.com locally (EUR, es locale)",
+        description="Search Google Flights and Booking.com locally (prices in EUR)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=FLIGHTS_EXAMPLES,
     )
@@ -231,7 +259,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     flights = sub.add_parser(
         "flights",
-        help="One-way Google Flights search (EUR, es)",
+        help="One-way Google Flights search (EUR prices)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=FLIGHTS_EXAMPLES,
     )
@@ -252,6 +280,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         type=int,
         default=8,
         help="Offers per query (default 8)",
+    )
+    flights.add_argument(
+        "--baggage-buffer",
+        type=int,
+        default=DEFAULT_BAGGAGE_BUFFER_EUR,
+        metavar="EUR",
+        help=(
+            f"EUR added to low-cost fares when ranking (default {DEFAULT_BAGGAGE_BUFFER_EUR}, "
+            "0 to rank on fare alone)"
+        ),
     )
     flights.add_argument(
         "--save",
@@ -298,10 +336,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     hotels.add_argument(
         "--entire-home",
         action="store_true",
-        help=(
-            "Require entire homes/apartments "
-            "(cards with unknown property type may remain)"
-        ),
+        help=("Require entire homes/apartments (cards with unknown property type may remain)"),
     )
     hotels.add_argument(
         "--allow-non-refundable",

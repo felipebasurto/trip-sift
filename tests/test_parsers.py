@@ -13,8 +13,10 @@ from trip_sift.parsers import (
     parse_unit_hints,
 )
 
-
 PRICE_CASES = [
+    ("€129", 129.0),
+    ("€1234", 1234.0),
+    ("€1234.56", 1234.56),
     ("1.024 €", 1024.0),
     ("520 €", 520.0),
     ("12,50 €", 12.5),
@@ -34,8 +36,14 @@ DURATION_CASES = [
     ("8 h 20 min", 8 + 20 / 60),
     ("55 min", 55 / 60),
     ("2 h", 2.0),
+    ("2 hr 50 min", 2 + 50 / 60),
+    ("1 day 3 hr", 27.0),
+    ("1 día 3 h", 27.0),
+    ("2 days", 48.0),
+    ("1 day 2 hr 30 min", 26.5),
     ("", None),
     (None, None),
+    ("overnight", None),
 ]
 
 STOPS_CASES = [
@@ -72,6 +80,12 @@ class ParserTests(unittest.TestCase):
         for text, want in STOPS_CASES:
             with self.subTest(text=text):
                 self.assertEqual(parse_stops_count(text), want)
+
+    def test_overnight_durations_are_not_undercounted(self) -> None:
+        overnight = parse_duration_hours("1 day 3 hr")
+        same_day = parse_duration_hours("10 hr")
+        assert overnight is not None and same_day is not None
+        self.assertGreater(overnight, same_day)
 
     def test_parse_rating(self) -> None:
         cases = [

@@ -4,7 +4,6 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SVG_NS = "{http://www.w3.org/2000/svg}"
 
@@ -53,9 +52,7 @@ def _should_scan_text_content(path: Path) -> bool:
 
 class PublicTreeHygieneTests(unittest.TestCase):
     def test_generated_results_are_ignored_by_audit(self) -> None:
-        self.assertTrue(
-            _is_under_ignored_audit_dir(Path("results/search.trip-sift.json"))
-        )
+        self.assertTrue(_is_under_ignored_audit_dir(Path("results/search.trip-sift.json")))
 
     def test_no_private_artifacts(self) -> None:
         offenders: list[str] = []
@@ -132,14 +129,10 @@ class PublicTreeHygieneTests(unittest.TestCase):
                 )
                 for name, value in element.attrib.items():
                     if name.endswith("href"):
-                        self.assertFalse(
-                            value.startswith(("http://", "https://", "//", "data:"))
-                        )
+                        self.assertFalse(value.startswith(("http://", "https://", "//", "data:")))
                 if element.tag == f"{SVG_NS}text":
                     font_size = element.attrib.get("font-size")
-                    self.assertIsNotNone(
-                        font_size, f"{path.name} text missing font-size"
-                    )
+                    self.assertIsNotNone(font_size, f"{path.name} text missing font-size")
                     self.assertGreaterEqual(float(font_size), 18)
             self.assertTrue(root.findall(f"{SVG_NS}title"))
             self.assertTrue(root.findall(f"{SVG_NS}desc"))

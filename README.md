@@ -5,23 +5,22 @@
 <p align="center">
   <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-172A33">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-52636B">
-  <img alt="Offline tests" src="https://img.shields.io/badge/tests-offline-52636B">
-  <img alt="Runs locally" src="https://img.shields.io/badge/runtime-local-172A33">
 </p>
 
-`trip-sift` searches one-way economy flights and Booking.com stays through local Chromium. It returns EUR prices with raw and normalized fields for each offer, using Spanish (`es-ES`) locale data. It uses [fast-flights](https://pypi.org/project/fast-flights/) and Playwright on your machine.
+Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. `trip-sift` drives a local Chromium over Google Flights (through [fast-flights](https://pypi.org/project/fast-flights/)) and Booking.com, and hands back typed offers that keep the scraped text next to every parsed number. It is built for scripts and agents that need structured prices, not for browsing.
 
 This is an unofficial project with no affiliation to Google or Booking.com. Either provider can change markup at any time, which may break parsing. Review the [Google Terms of Service](https://policies.google.com/terms), [Booking.com terms](https://www.booking.com/content/terms.html), and your own obligations before use.
 
 ## Install
 
 ```bash
-python3.9 -m venv .venv
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -e .
 .venv/bin/playwright install chromium
 ```
 
-Requires Python 3.9 or newer. After these steps, the `trip-sift` CLI is available in `.venv/bin/`.
+Requires Python 3.9 or newer. The `pip` upgrade is not optional on 3.9, whose bundled pip 21.2.4 cannot install a `pyproject.toml`-only project in editable mode. After these steps the CLI is at `.venv/bin/trip-sift`.
 
 ## Search flights
 
@@ -29,32 +28,43 @@ Requires Python 3.9 or newer. After these steps, the `trip-sift` CLI is availabl
 .venv/bin/trip-sift flights MAD-BCN:2026-09-01
 ```
 
-Prints up to eight eligible offers in a table. No result file is created.
+```text
+=== MAD -> BCN  2026-09-01 (max 1 stop(s)) ===
+       39 €  1 hr 25 min  direct  07:15 -> 08:40     Vueling  (+70 bag = 109 € ranked)
+       88 €  1 hr 20 min  direct  09:30 -> 10:50     Iberia
+      131 €  3 hr 55 min  1 stop  14:05 -> 18:00     Air Europa
+```
+
+One adult, one-way, economy. Up to eight offers per query, ordered by the number in the ranking note. Vueling is the cheapest fare here but ranks above Iberia once an estimated checked bag is priced in; pass `--baggage-buffer 0` to rank on fare alone. Nothing is written to disk unless you ask for it.
 
 ## Search hotels
 
 ```bash
-.venv/bin/trip-sift hotels Prague 2026-12-04 2026-12-07
+.venv/bin/trip-sift hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
 ```
 
-Hotel prices are totals for the complete stay. Free cancellation is required by default; use `--allow-non-refundable` only when you explicitly want to include other stays.
+```text
+=== Prague  2026-12-04 -> 2026-12-07 (3 nights, 2 adult(s), 1 room(s)) ===
+  Filters: Free cancellation required; Minimum rating 8.5
+  Booking chips: oos=1
+  246 € total stay  rating 8,9  Hotel Golden Key  Praga 1
+    Cancellation: free
+  291 € total stay  rating 9,2  Vinohrady Apartment  Praga 2
+    Cancellation: free
+  Raw cards: 40; eligible: 12; shown: 2
+```
 
-## At a glance
+Prices are totals for the whole stay, not per night. Free cancellation is required by default; use `--allow-non-refundable` only when you explicitly want other stays.
 
-| Capability | Behavior |
-|---|---|
-| Flights | Compares comma-separated dates, with direct or one-stop filtering. |
-| Hotels | Searches Booking.com by location and stay dates. |
-| Hotel filters | Free cancellation by default; optional minimum rating and entire-home filter. |
-| Output | Prints a table and writes JSON only with `--save`. |
-| Rate limits | Keeps fixed delays, jitter, and exponential backoff. |
-| Privacy | Stores browser state outside the checkout. |
+The output separates what you asked for (`Filters`), what Booking was actually told (`Booking chips`), and what each card actually showed (`Cancellation`), because those three can disagree. Note that `--min-rating 8.5` appears under `Filters` but produces no chip: only free cancellation and `--entire-home` are pushed to Booking, and the rating is applied locally to the scraped cards.
 
 ## How it works
 
 <p align="center">
   <img src="docs/assets/how-trip-sift-works.svg" alt="trip-sift data flow from user to typed results" width="100%">
 </p>
+
+You or an agent pass a route and dates. The CLI validates the input before any browser starts, then paces the queries deliberately. A single local Chromium session does the scraping with images, media, and fonts blocked. Offers come back ranked, and consent cookies stay in your state directory rather than in this checkout.
 
 ## Compare dates and save JSON
 
@@ -66,9 +76,76 @@ Hotel prices are totals for the complete stay. Free cancellation is required by 
   --save results/search.trip-sift.json
 ```
 
-Searches each date sequentially, prints a table per date, and writes combined results to `results/search.trip-sift.json`.
+Each date is searched sequentially and printed as its own block. Progress goes to stderr so you can pipe the table on its own. Ten dates spend 40 to 54 seconds asleep between queries before any page even loads, which is deliberate.
 
-Route grammar: `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IATA codes and `YYYY-MM-DD` dates.
+## CLI reference
+
+Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IATA codes and `YYYY-MM-DD` dates. Codes are case-insensitive. Pass a return leg as a second route, not as a round trip.
+
+| `flights` flag | Default | Behavior |
+|---|---|---|
+| `--max-stops` | `1` | `0` for direct flights only, `1` to allow one stop. |
+| `--top` | `8` | Offers kept per query after ranking and deduplication. |
+| `--baggage-buffer` | `70` | EUR added to low-cost fares when ranking. `0` ranks on fare alone. |
+| `--save FILE` | off | Write the JSON report atomically. |
+
+| `hotels` flag | Default | Behavior |
+|---|---|---|
+| `--adults` / `--rooms` | `2` / `1` | Occupancy for the stay. |
+| `--top` | `8` | Stays shown after filtering and ranking. |
+| `--min-rating` | off | Minimum Booking review score, 0 to 10. |
+| `--entire-home` | off | Require entire homes. Cards with unknown property type may remain. |
+| `--allow-non-refundable` | off | Include stays without free cancellation. |
+| `--save FILE` | off | Write the JSON report atomically. |
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Every query finished without a fetch failure, including queries that found nothing eligible. |
+| `1` | The command input is invalid. |
+| `2` | Every query failed. |
+| `3` | Some queries finished and some failed. |
+
+## JSON output
+
+`--save` writes one report per run. Every offer carries the scraped text beside its parsed value, so a better parser can be run over old results.
+
+```json
+{
+  "schema_version": 1,
+  "searched_at": "2026-08-11T10:32:00Z",
+  "currency": "EUR",
+  "locale": "en",
+  "queries": [
+    {
+      "status": "ok",
+      "query": {
+        "origin": "MAD",
+        "destination": "BCN",
+        "departure_date": "2026-09-01",
+        "max_stops": 1
+      },
+      "raw_count": 24,
+      "offers": [
+        {
+          "airline": "Vueling",
+          "departure": "07:15",
+          "arrival": "08:40",
+          "price": "€39",
+          "price_eur": 39.0,
+          "duration": "1 hr 25 min",
+          "duration_hours": 1.42,
+          "stops": "Nonstop",
+          "stops_count": 0,
+          "baggage_buffer_eur": 70,
+          "needs_bag_verify": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+A failed query replaces `raw_count` and `offers` with `"error": {"code": ..., "message": ...}`. Codes are `no_results`, `browser_unavailable`, and `fetch_failed`. Hotel reports follow the same envelope, with `provider`, `price_basis: "total_stay"`, and an `applied` block recording the Booking filters that were actually used.
 
 ## Python API
 
@@ -119,39 +196,37 @@ for result in report.queries:
             print(offer.total_price_eur, offer.title)
 ```
 
-## Baggage
+Both run a live search with the same Chromium and the same pacing as the CLI.
 
-Low-cost carriers include a 70 EUR baggage buffer in ranking. That is an estimate, not a fare quote. Confirm checked-bag rules and price on Google Flights before booking.
+## Limitations
+
+- Flights are one adult, one-way, economy, and `--max-stops` is `0` or `1`. There is no flag to shorten the delays or to parallelize requests.
+- The flight scrape runs in English because `fast-flights` only parses English stop labels. Prices are still EUR. Hotels scrape in Spanish against our own parser.
+- Flight ranking adds a flat estimate for known low-cost carriers, not a fare quote. The low-cost list is partial, so an airline missing from it is not evidence of a bag-inclusive fare. Confirm the checked bag on Google Flights before booking.
+- Hotel cancellation and property type are reported as observed evidence, and `unknown` means the card did not say. `--entire-home` therefore cannot remove every non-home. Confirm the final total and the cancellation terms on Booking.com before booking.
+- Finding nothing eligible still exits `0` and prints `(no eligible offers)` or `(no eligible stays)`. Widen the filters or check the route.
+- If Chromium is missing you get `browser_unavailable`. Run `.venv/bin/playwright install chromium`.
+- After repeated failures, stop for 30 to 60 minutes and retry a small query set.
 
 ## Browser state
 
-Playwright consent cookies persist as `pw_state_google.json` and `pw_state_booking.json` at:
+Playwright consent cookies persist as `pw_state_google.json` and `pw_state_booking.json` at the first of these that applies:
 
 1. `$TRIP_SIFT_STATE_DIR/`
 2. `$XDG_STATE_HOME/trip-sift/`
 3. `~/.local/state/trip-sift/`
 
-Delete the affected provider file if consent or scraping breaks; it will be recreated on the next run.
-
-## Rate limits
-
-If searches start failing repeatedly, stop for 30-60 minutes before trying again with a small query set.
-
-## Exit codes
-
-| Code | Meaning |
-|------|---------|
-| `0` | Every query completed. |
-| `1` | The command input is invalid. |
-| `2` | Every query failed. |
-| `3` | Some queries completed and some failed. |
+Delete the affected provider file if consent or scraping breaks. It is recreated on the next run.
 
 ## Tests
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m ruff check src tests
 ```
+
+Fully offline. They never launch Chromium and never touch the network. `tests/test_provider_seam.py` drives synthetic markup through the real `fast-flights` parser, because that dependency rewrites text before `trip-sift` ever sees it. CI runs the suite on Python 3.9 through 3.13.
 
 ## Privacy boundary
 
-Browser state, saved results, logs, Playwright artifacts, and local scratch files are excluded by `.gitignore`. Inspect `git status --short` and `git ls-files` before pushing a fork.
+This tree is the public export of a private trip-planning repo. Do not commit scrapes, personal routes, or browser session files. Saved results (`results/`, `*.trip-sift.json`), logs, and Playwright artifacts are gitignored, and consent cookies live outside the checkout entirely. Before pushing a fork, check `git status --short` and `git ls-files`.

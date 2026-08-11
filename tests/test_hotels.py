@@ -6,8 +6,8 @@ from datetime import date, datetime
 from pathlib import Path
 from random import Random
 from typing import List, Sequence, Tuple, Union
-from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 import trip_sift.hotels as hotels_module
 from trip_sift.hotels import (
@@ -22,10 +22,10 @@ from trip_sift.hotels import (
     REQUEST_JITTER_SECONDS,
     _BookingHotelsSource,
     _HotelPage,
-    _RawHotelCard,
     _is_eligible,
     _normalize_card,
     _rank_offers,
+    _RawHotelCard,
     _run_search,
     build_applied_filters,
     search_hotels,
@@ -42,7 +42,6 @@ from trip_sift.models import (
     PropertyTypeEvidence,
     SearchErrorCode,
 )
-
 
 ScriptedResponse = Union[_HotelPage, Exception]
 
@@ -155,9 +154,7 @@ class FakePage:
     def locator(self, selector: str) -> FakeLocator:
         if selector in self.locators:
             return self.locators[selector]
-        result_selector = ", ".join(
-            (PROPERTY_CARD_SELECTOR,) + EMPTY_STATE_SELECTORS
-        )
+        result_selector = ", ".join((PROPERTY_CARD_SELECTOR,) + EMPTY_STATE_SELECTORS)
         if selector == result_selector:
             return FakeLocator(count=1, visible=True, wait_error=self.wait_error)
         visible = selector in self.empty_selectors
@@ -307,9 +304,7 @@ def provider_card(
     if title is not None:
         elements['[data-testid="title"]'] = FakeElement(title)
     if total_price is not None:
-        elements['[data-testid="price-and-discounted-price"]'] = FakeElement(
-            total_price
-        )
+        elements['[data-testid="price-and-discounted-price"]'] = FakeElement(total_price)
     if rating is not None:
         elements['[data-testid="review-score"]'] = FakeElement(rating)
     if address is not None:
@@ -437,9 +432,7 @@ class PureHotelLogicTests(unittest.TestCase):
         self.assertEqual(normalized.rating_score, 8.7)
 
     def test_normalize_card_does_not_publish_review_count_as_rating(self) -> None:
-        normalized = _normalize_card(
-            card(rating="Fabuloso 1.234 comentarios")
-        )
+        normalized = _normalize_card(card(rating="Fabuloso 1.234 comentarios"))
 
         assert normalized is not None
         self.assertIsNone(normalized.rating_score)
@@ -538,8 +531,7 @@ class HotelOrchestrationTests(unittest.TestCase):
         sleeps: List[float] = []
         expected_random = Random(7)
         expected_backoffs = [
-            BACKOFF_BASE_SECONDS * (2**attempt)
-            + expected_random.uniform(0, BACKOFF_JITTER_SECONDS)
+            BACKOFF_BASE_SECONDS * (2**attempt) + expected_random.uniform(0, BACKOFF_JITTER_SECONDS)
             for attempt in range(MAX_ATTEMPTS - 1)
         ]
 
@@ -574,9 +566,7 @@ class HotelOrchestrationTests(unittest.TestCase):
     def test_two_queries_sleep_once_between_queries(self) -> None:
         source = FakeSource([_HotelPage(cards=()), _HotelPage(cards=())])
         sleeps: List[float] = []
-        expected = REQUEST_DELAY_SECONDS + Random(11).uniform(
-            0, REQUEST_JITTER_SECONDS
-        )
+        expected = REQUEST_DELAY_SECONDS + Random(11).uniform(0, REQUEST_JITTER_SECONDS)
 
         _run_search(
             (query(), query(location="Porto")),
@@ -841,9 +831,7 @@ class BookingHotelsSourceTests(unittest.TestCase):
         self.assertTrue(page.closed)
 
     def test_malformed_cards_are_skipped_while_good_cards_survive(self) -> None:
-        page = FakePage(
-            cards=(provider_card(title=None), provider_card(title="Good"))
-        )
+        page = FakePage(cards=(provider_card(title=None), provider_card(title="Good")))
 
         with tempfile.TemporaryDirectory() as tmp:
             source = self.source_for(page, Path(tmp))
