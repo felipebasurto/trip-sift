@@ -13,34 +13,34 @@ This is an unofficial project with no affiliation to Google or Booking.com. Eith
 
 ## Install
 
+Needs [uv](https://docs.astral.sh/uv/) and Python 3.9 or newer.
+
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e .
-.venv/bin/playwright install chromium
+uv sync
+uv run playwright install chromium
 ```
 
-Requires Python 3.9 or newer. The `pip` upgrade is not optional on 3.9, whose bundled pip 21.2.4 cannot install a `pyproject.toml`-only project in editable mode. After these steps the CLI is at `.venv/bin/trip-sift`.
+After that, run the CLI with `uv run trip-sift`. The lockfile (`uv.lock`) pins the exact dependency graph used in CI. A plain `pip install -e .` still works if you prefer pip, but then you must install Chromium yourself and you lose the locked transitive versions.
 
 ## Search flights
 
 ```bash
-.venv/bin/trip-sift flights MAD-BCN:2026-09-01
+uv run trip-sift flights MAD-BCN:2026-09-01
 ```
 
 ```text
 === MAD -> BCN  2026-09-01 (max 1 stop(s)) ===
-       39 €  1 hr 25 min  direct  07:15 -> 08:40     Vueling  (+70 bag = 109 € ranked)
        88 €  1 hr 20 min  direct  09:30 -> 10:50     Iberia
+       39 €  1 hr 25 min  direct  07:15 -> 08:40     Vueling  (+70 bag = 109 € ranked)
       131 €  3 hr 55 min  1 stop  14:05 -> 18:00     Air Europa
 ```
 
-One adult, one-way, economy. Up to eight offers per query, ordered by the number in the ranking note. Vueling is the cheapest fare here but ranks above Iberia once an estimated checked bag is priced in; pass `--baggage-buffer 0` to rank on fare alone. Nothing is written to disk unless you ask for it.
+One adult, one-way, economy. Up to eight offers per query, ordered by the ranked total in the note. Vueling is cheaper on fare, but the checked-bag buffer puts it behind Iberia at 109 € ranked. Pass `--baggage-buffer 0` to rank on fare alone. Nothing is written to disk unless you ask for it.
 
 ## Search hotels
 
 ```bash
-.venv/bin/trip-sift hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
+uv run trip-sift hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
 ```
 
 ```text
@@ -69,7 +69,7 @@ You or an agent pass a route and dates. The CLI validates the input before any b
 ## Compare dates and save JSON
 
 ```bash
-.venv/bin/trip-sift flights \
+uv run trip-sift flights \
   MAD-BCN:2026-09-01,2026-09-02,2026-09-03 \
   --max-stops 0 \
   --top 5 \
@@ -205,7 +205,7 @@ Both run a live search with the same Chromium and the same pacing as the CLI.
 - Flight ranking adds a flat estimate for known low-cost carriers, not a fare quote. The low-cost list is partial, so an airline missing from it is not evidence of a bag-inclusive fare. Confirm the checked bag on Google Flights before booking.
 - Hotel cancellation and property type are reported as observed evidence, and `unknown` means the card did not say. `--entire-home` therefore cannot remove every non-home. Confirm the final total and the cancellation terms on Booking.com before booking.
 - Finding nothing eligible still exits `0` and prints `(no eligible offers)` or `(no eligible stays)`. Widen the filters or check the route.
-- If Chromium is missing you get `browser_unavailable`. Run `.venv/bin/playwright install chromium`.
+- If Chromium is missing you get `browser_unavailable`. Run `uv run playwright install chromium`.
 - After repeated failures, stop for 30 to 60 minutes and retry a small query set.
 
 ## Browser state
@@ -221,8 +221,8 @@ Delete the affected provider file if consent or scraping breaks. It is recreated
 ## Tests
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python -m ruff check src tests
+uv run python -m unittest discover -s tests -v
+uv run ruff check src tests
 ```
 
 Fully offline. They never launch Chromium and never touch the network. `tests/test_provider_seam.py` drives synthetic markup through the real `fast-flights` parser, because that dependency rewrites text before `trip-sift` ever sees it. CI runs the suite on Python 3.9 through 3.13.

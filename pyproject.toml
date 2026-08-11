@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trip-sift"
 version = "0.1.0"
-description = "Local Google Flights and Booking.com search via Playwright (EUR, es locale)"
+description = "Local Google Flights and Booking.com search via Playwright (EUR; English flight parsing, Spanish hotel parsing)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -33,3 +33,9 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+    "ruff==0.15.12",
+]

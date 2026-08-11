@@ -18,14 +18,17 @@ from trip_sift.models import (
     SearchErrorCode,
     SearchReport,
 )
+from trip_sift.orchestration import (
+    MAX_ATTEMPTS,
+    NON_RETRIABLE_CODES,
+    inter_query_delay_seconds,
+    retry_backoff_seconds,
+)
+from trip_sift.orchestration import (
+    classify_failure as classify_provider_failure,
+)
 from trip_sift.parsers import parse_duration_hours, parse_price_eur, parse_stops_count
 from trip_sift.storage import default_state_dir, write_json_atomic
-
-REQUEST_DELAY_SECONDS = 4.5
-REQUEST_JITTER_SECONDS = 1.5
-MAX_ATTEMPTS = 3
-BACKOFF_BASE_SECONDS = 8.0
-BACKOFF_JITTER_SECONDS = 3.0
 
 DEFAULT_BAGGAGE_BUFFER_EUR = 70
 
@@ -55,31 +58,16 @@ LOW_COST_NAMES = [
 ]
 
 NO_RESULTS_MARKERS = ("no flights found",)
-BROWSER_UNAVAILABLE_MARKERS = (
-    "executable doesn't exist",
-    "playwright install",
-    "browsertype.launch",
-    "no module named 'playwright'",
-)
+NO_RESULTS_MESSAGE = "Google Flights returned no flights for this route and date."
 
 
 def classify_failure(exc: BaseException) -> SearchError:
-    text = f"{type(exc).__name__}: {exc}".strip()
-    lowered = text.casefold()
-    if any(marker in lowered for marker in NO_RESULTS_MARKERS):
-        return SearchError(
-            code=SearchErrorCode.NO_RESULTS,
-            message="Google Flights returned no flights for this route and date.",
-        )
-    if any(marker in lowered for marker in BROWSER_UNAVAILABLE_MARKERS):
-        return SearchError(
-            code=SearchErrorCode.BROWSER_UNAVAILABLE,
-            message=("Chromium is not available to Playwright. Run 'playwright install chromium'."),
-        )
-    return SearchError(code=SearchErrorCode.FETCH_FAILED, message=text)
-
-
-NON_RETRIABLE_CODES = frozenset({SearchErrorCode.NO_RESULTS, SearchErrorCode.BROWSER_UNAVAILABLE})
+    return classify_provider_failure(
+        exc,
+        provider="Google Flights",
+        no_results_markers=NO_RESULTS_MARKERS,
+        no_results_message=NO_RESULTS_MESSAGE,
+    )
 
 
 class _ProviderOffer(Protocol):
@@ -288,10 +276,7 @@ def _run_search(
                 if failure.code in NON_RETRIABLE_CODES:
                     break
                 if attempt + 1 < MAX_ATTEMPTS:
-                    backoff = BACKOFF_BASE_SECONDS * (2**attempt) + random_gen.uniform(
-                        0, BACKOFF_JITTER_SECONDS
-                    )
-                    sleep(backoff)
+                    sleep(retry_backoff_seconds(attempt, random_gen))
         if outcome is None:
             outcome = QueryFailure(
                 query=query,
@@ -304,8 +289,7 @@ def _run_search(
             report_progress(f"  {outcome.error.code.value}: {outcome.error.message}")
         results.append(outcome)
         if index + 1 < len(queries):
-            delay = REQUEST_DELAY_SECONDS + random_gen.uniform(0, REQUEST_JITTER_SECONDS)
-            sleep(delay)
+            sleep(inter_query_delay_seconds(random_gen))
     return SearchReport(searched_at=now(), queries=tuple(results))
 
 

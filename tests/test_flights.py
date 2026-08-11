@@ -8,11 +8,6 @@ from typing import Optional, Sequence
 from unittest.mock import patch
 
 from trip_sift.flights import (
-    BACKOFF_BASE_SECONDS,
-    BACKOFF_JITTER_SECONDS,
-    MAX_ATTEMPTS,
-    REQUEST_DELAY_SECONDS,
-    REQUEST_JITTER_SECONDS,
     _normalize_offer,
     _rank_offers,
     _run_search,
@@ -28,6 +23,13 @@ from trip_sift.models import (
     QueryFailure,
     QuerySuccess,
     SearchErrorCode,
+)
+from trip_sift.orchestration import (
+    BACKOFF_BASE_SECONDS,
+    BACKOFF_JITTER_SECONDS,
+    MAX_ATTEMPTS,
+    REQUEST_DELAY_SECONDS,
+    REQUEST_JITTER_SECONDS,
 )
 
 

@@ -103,6 +103,7 @@ def _validate_hotel_args(args: argparse.Namespace) -> HotelQuery:
 
 
 def _print_report(report) -> None:
+    any_success = False
     for result in report.queries:
         query = result.query
         header = (
@@ -111,6 +112,7 @@ def _print_report(report) -> None:
         )
         print(header)
         if isinstance(result, QuerySuccess):
+            any_success = True
             if not result.offers:
                 print("  (no eligible offers)")
             for offer in result.offers:
@@ -122,6 +124,8 @@ def _print_report(report) -> None:
                 )
         elif isinstance(result, QueryFailure):
             print(f"  ERROR: {result.error.message}")
+    if any_success:
+        print("\nVerify checked baggage on Google Flights before booking.")
 
 
 def _format_hotel_filter_gloss(query: HotelQuery) -> str:

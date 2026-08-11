@@ -312,6 +312,14 @@ class HotelSearchReport:
     locale: Literal["es"] = field(init=False, default="es")
     price_basis: Literal["total_stay"] = field(init=False, default="total_stay")
 
+    def __post_init__(self) -> None:
+        if self.searched_at.tzinfo is not None:
+            object.__setattr__(
+                self,
+                "searched_at",
+                self.searched_at.astimezone(timezone.utc).replace(tzinfo=None),
+            )
+
     def to_dict(self) -> Mapping[str, object]:
         return {
             "schema_version": self.schema_version,

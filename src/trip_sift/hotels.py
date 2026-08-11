@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import atexit
 import contextlib
-import os
 import random
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional, Protocol, Sequence, Tuple
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
+from trip_sift.browser import BrowserSessionConfig, ChromiumSession
 from trip_sift.models import (
     AppliedHotelFilters,
     CancellationEvidence,
@@ -24,6 +23,13 @@ from trip_sift.models import (
     SearchError,
     SearchErrorCode,
 )
+from trip_sift.orchestration import (
+    MAX_ATTEMPTS,
+    NON_RETRIABLE_CODES,
+    classify_failure,
+    inter_query_delay_seconds,
+    retry_backoff_seconds,
+)
 from trip_sift.parsers import (
     parse_cancellation_evidence,
     parse_price_eur,
@@ -32,12 +38,6 @@ from trip_sift.parsers import (
     parse_unit_hints,
 )
 from trip_sift.storage import default_state_dir, write_json_atomic
-
-REQUEST_DELAY_SECONDS = 4.5
-REQUEST_JITTER_SECONDS = 1.5
-MAX_ATTEMPTS = 3
-BACKOFF_BASE_SECONDS = 8.0
-BACKOFF_JITTER_SECONDS = 3.0
 
 BOOKING_SEARCH_URL = "https://www.booking.com/searchresults.html"
 PROPERTY_CARD_SELECTOR = '[data-testid="property-card"]'
@@ -54,12 +54,12 @@ CONSENT_SELECTORS = (
     'button:has-text("Aceptar todas")',
     '[id*="accept"]',
 )
-BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 DESKTOP_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
+BOOKING_STATE_FILENAME = "pw_state_booking.json"
 
 
 @dataclass(frozen=True)
@@ -212,6 +212,7 @@ def _run_search(
     for index, query in enumerate(queries):
         applied = build_applied_filters(query)
         outcome: Optional[HotelQueryResult] = None
+        failure: Optional[SearchError] = None
         for attempt in range(MAX_ATTEMPTS):
             try:
                 page = source.fetch(query, applied, fetch_limit)
@@ -232,26 +233,26 @@ def _run_search(
                     offers=ranked[:top],
                 )
                 break
-            except Exception:
+            except Exception as exc:
+                failure = classify_failure(exc, provider="Booking.com")
                 source.reset()
+                if failure.code in NON_RETRIABLE_CODES:
+                    break
                 if attempt + 1 < MAX_ATTEMPTS:
-                    backoff = BACKOFF_BASE_SECONDS * (2**attempt) + random_gen.uniform(
-                        0, BACKOFF_JITTER_SECONDS
-                    )
-                    sleep(backoff)
+                    sleep(retry_backoff_seconds(attempt, random_gen))
         if outcome is None:
             outcome = HotelQueryFailure(
                 query=query,
                 applied=applied,
-                error=SearchError(
+                error=failure
+                or SearchError(
                     code=SearchErrorCode.FETCH_FAILED,
-                    message="Booking.com hotel search failed after 3 attempts.",
+                    message="Booking.com hotel search failed.",
                 ),
             )
         results.append(outcome)
         if index + 1 < len(queries):
-            delay = REQUEST_DELAY_SECONDS + random_gen.uniform(0, REQUEST_JITTER_SECONDS)
-            sleep(delay)
+            sleep(inter_query_delay_seconds(random_gen))
     return HotelSearchReport(searched_at=now(), queries=tuple(results))
 
 
@@ -272,7 +273,7 @@ def search_hotels(
             source=source,
             sleep=time.sleep,
             random_gen=random.Random(),
-            now=datetime.utcnow,
+            now=lambda: datetime.now(timezone.utc),
         )
     finally:
         source.close()
@@ -286,40 +287,20 @@ def write_hotel_report_atomic(
 
 
 class _BookingHotelsSource:
-    def __init__(self, state_dir: Path) -> None:
-        self._state_dir = state_dir
-        self._state_path = state_dir / "pw_state_booking.json"
-        self._pw = None
-        self._browser = None
-        self._context = None
-        self._atexit_registered = False
-
-    def _ensure_context(self) -> object:
-        if self._context is None:
-            from playwright.sync_api import sync_playwright
-
-            self._state_dir.mkdir(parents=True, exist_ok=True)
-            self._pw = sync_playwright().start()
-            self._browser = self._pw.chromium.launch(headless=True)
-            storage = str(self._state_path) if self._state_path.exists() else None
-            self._context = self._browser.new_context(
+    def __init__(
+        self,
+        state_dir: Path,
+        session: Optional[ChromiumSession] = None,
+    ) -> None:
+        self._session = session or ChromiumSession(
+            state_dir,
+            BrowserSessionConfig(
+                state_filename=BOOKING_STATE_FILENAME,
                 locale="es-ES",
                 viewport={"width": 1280, "height": 900},
                 user_agent=DESKTOP_USER_AGENT,
-                storage_state=storage,
-            )
-            self._context.route("**/*", self._block_heavy_resources)
-            if not self._atexit_registered:
-                atexit.register(self.close)
-                self._atexit_registered = True
-        return self._context
-
-    @staticmethod
-    def _block_heavy_resources(route) -> None:
-        if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
-            route.abort()
-        else:
-            route.continue_()
+            ),
+        )
 
     @staticmethod
     def _dismiss_consent(page) -> None:
@@ -396,7 +377,7 @@ class _BookingHotelsSource:
     ) -> _HotelPage:
         if limit <= 0:
             raise ValueError("limit must be positive")
-        page = self._ensure_context().new_page()
+        page = self._session.new_page()
         try:
             page.goto(
                 applied.url,
@@ -427,34 +408,8 @@ class _BookingHotelsSource:
             with contextlib.suppress(Exception):
                 page.close()
 
-    def _persist_state(self) -> None:
-        if self._context is None:
-            return
-        self._state_dir.mkdir(parents=True, exist_ok=True)
-        temporary = self._state_path.with_suffix(".json.tmp")
-        try:
-            self._context.storage_state(path=str(temporary))
-            os.replace(temporary, self._state_path)
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                temporary.unlink()
-
-    def _teardown(self) -> None:
-        for obj in (self._context, self._browser):
-            if obj is not None:
-                with contextlib.suppress(Exception):
-                    obj.close()
-        if self._pw is not None:
-            with contextlib.suppress(Exception):
-                self._pw.stop()
-        self._pw = self._browser = self._context = None
-
     def reset(self) -> None:
-        with contextlib.suppress(Exception):
-            self._persist_state()
-        self._teardown()
+        self._session.reset()
 
     def close(self) -> None:
-        with contextlib.suppress(Exception):
-            self._persist_state()
-        self._teardown()
+        self._session.close()
