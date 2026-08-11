@@ -211,6 +211,24 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("[baggage?]", output)
         self.assertNotIn("ranked", output)
 
+    def test_baggage_reminder_after_successful_flight_results(self) -> None:
+        output = _rendered(_report(_offer()))
+        self.assertIn("Verify checked baggage on Google Flights before booking.", output)
+
+    def test_baggage_reminder_omitted_when_all_queries_fail(self) -> None:
+        report = SearchReport(
+            searched_at=SEARCHED_AT,
+            queries=(
+                QueryFailure(
+                    query=QUERY,
+                    error=SearchError(SearchErrorCode.FETCH_FAILED, "blocked"),
+                ),
+            ),
+        )
+        output = _rendered(report)
+        self.assertNotIn("Verify checked baggage", output)
+        self.assertIn("ERROR: blocked", output)
+
     def test_long_airline_names_are_truncated_visibly(self) -> None:
         output = _rendered(_report(_offer(airline="A" * 60)))
         self.assertIn("…", output)
