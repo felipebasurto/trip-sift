@@ -30,12 +30,12 @@ Requires Python 3.9 or newer. The `pip` upgrade is not optional on 3.9, whose bu
 
 ```text
 === MAD -> BCN  2026-09-01 (max 1 stop(s)) ===
-       39 €  1 hr 25 min  direct  07:15 -> 08:40     Vueling  (+70 bag = 109 € ranked)
        88 €  1 hr 20 min  direct  09:30 -> 10:50     Iberia
+       39 €  1 hr 25 min  direct  07:15 -> 08:40     Vueling  (+70 bag = 109 € ranked)
       131 €  3 hr 55 min  1 stop  14:05 -> 18:00     Air Europa
 ```
 
-One adult, one-way, economy. Up to eight offers per query, ordered by the number in the ranking note. Vueling is the cheapest fare here but ranks above Iberia once an estimated checked bag is priced in; pass `--baggage-buffer 0` to rank on fare alone. Nothing is written to disk unless you ask for it.
+One adult, one-way, economy. Up to eight offers per query, ordered by the ranked total in the note. Vueling is cheaper on fare, but the checked-bag buffer puts it behind Iberia at 109 € ranked. Pass `--baggage-buffer 0` to rank on fare alone. Nothing is written to disk unless you ask for it.
 
 ## Search hotels
 
