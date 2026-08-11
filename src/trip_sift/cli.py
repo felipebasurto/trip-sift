@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
 from trip_sift.flights import (
     DEFAULT_BAGGAGE_BUFFER_EUR,
@@ -11,7 +12,7 @@ from trip_sift.flights import (
     search_flights,
     write_report_atomic,
 )
-from trip_sift.models import QueryFailure, QuerySuccess
+from trip_sift.models import FlightQuery, QueryFailure, QuerySuccess
 
 
 FLIGHTS_EXAMPLES = """\
@@ -22,14 +23,19 @@ Examples:
 """
 
 
-def _validate_args(args: argparse.Namespace) -> None:
-    if args.max_stops not in (0, 1):
-        raise ValueError("--max-stops must be 0 or 1")
+def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
     if args.top <= 0:
         raise ValueError("--top must be a positive integer")
     if args.baggage_buffer < 0:
         raise ValueError("--baggage-buffer must not be negative")
-    parse_route_specs(args.routes, max_stops=args.max_stops)
+    queries = parse_route_specs(args.routes, max_stops=args.max_stops)
+    today = date.today()
+    for query in queries:
+        if query.departure_date < today:
+            raise ValueError(
+                f"departure date is in the past: {query.departure_date.isoformat()}"
+            )
+    return queries
 
 
 def _format_stops(stops_count: Optional[int]) -> str:
@@ -143,8 +149,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     try:
-        _validate_args(args)
-        queries = parse_route_specs(args.routes, max_stops=args.max_stops)
+        queries = _parse_and_validate(args)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

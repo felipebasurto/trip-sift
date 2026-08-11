@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Literal, Mapping, Optional, Tuple, Union
 
@@ -51,6 +51,10 @@ class FlightOffer:
     def __post_init__(self) -> None:
         if self.price_eur <= 0:
             raise ValueError("price_eur must be positive")
+        if self.baggage_buffer_eur < 0:
+            raise ValueError("baggage_buffer_eur must not be negative")
+        if self.baggage_buffer_eur > 0 and not self.needs_bag_verify:
+            raise ValueError("a baggage buffer only applies to a carrier flagged for verification")
 
     def to_dict(self) -> Mapping[str, object]:
         return {
@@ -123,6 +127,14 @@ class SearchReport:
     schema_version: int = field(init=False, default=1)
     currency: Literal["EUR"] = field(init=False, default="EUR")
     locale: Literal["en"] = field(init=False, default="en")
+
+    def __post_init__(self) -> None:
+        if self.searched_at.tzinfo is not None:
+            object.__setattr__(
+                self,
+                "searched_at",
+                self.searched_at.astimezone(timezone.utc).replace(tzinfo=None),
+            )
 
     def to_dict(self) -> Mapping[str, object]:
         return {

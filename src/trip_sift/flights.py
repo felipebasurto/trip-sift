@@ -7,7 +7,7 @@ import os
 import random
 import re
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional, Protocol, Sequence, Tuple
 
@@ -214,12 +214,6 @@ def _eligible_stops(stops: object, max_stops: int) -> bool:
     count = parse_stops_count(stops)
     if count is not None:
         return count <= max_stops
-    if isinstance(stops, str):
-        lower = stops.lower()
-        if any(x in lower for x in ("2 stop", "2 escala", "3 stop", "3 escala", "2 ", "3 ")):
-            return False
-        if max_stops == 0:
-            return lower in ("nonstop", "directo", "direct")
     return max_stops >= 1
 
 
@@ -372,7 +366,7 @@ def search_flights(
             source=source,
             sleep=time.sleep,
             random_gen=random.Random(),
-            now=lambda: datetime.utcnow(),
+            now=lambda: datetime.now(timezone.utc),
             buffer_eur=buffer_eur,
             progress=progress,
         )

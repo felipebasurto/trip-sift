@@ -5,7 +5,7 @@ import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from unittest.mock import patch
@@ -21,7 +21,11 @@ from trip_sift.models import (
     SearchReport,
 )
 
-QUERY = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
+FUTURE_DATE = date.today() + timedelta(days=30)
+PAST_DATE = date.today() - timedelta(days=1)
+ROUTE = f"MAD-BCN:{FUTURE_DATE.isoformat()}"
+
+QUERY = FlightQuery("MAD", "BCN", FUTURE_DATE, max_stops=1)
 SEARCHED_AT = datetime(2026, 8, 10, 9, 0, 0)
 
 
@@ -77,14 +81,14 @@ class CliTests(unittest.TestCase):
     def test_invalid_max_stops(self) -> None:
         with patch("trip_sift.cli.search_flights") as search:
             with redirect_stdout(io.StringIO()):
-                code = main(["flights", "MAD-BCN:2026-09-01", "--max-stops", "3"])
+                code = main(["flights", ROUTE, "--max-stops", "3"])
             self.assertEqual(code, 1)
             search.assert_not_called()
 
     def test_prints_results(self) -> None:
         with patch("trip_sift.cli.search_flights", return_value=_report()):
             with patch("trip_sift.cli._print_report") as printer:
-                code = main(["flights", "MAD-BCN:2026-09-01"])
+                code = main(["flights", ROUTE])
                 self.assertEqual(code, 0)
                 printer.assert_called_once()
 
@@ -92,7 +96,7 @@ class CliTests(unittest.TestCase):
         with patch("trip_sift.cli.search_flights", return_value=_report()):
             with patch("trip_sift.cli.write_report_atomic") as writer:
                 with patch("trip_sift.cli._print_report"):
-                    main(["flights", "MAD-BCN:2026-09-01"])
+                    main(["flights", ROUTE])
                 writer.assert_not_called()
 
     def test_atomic_save(self) -> None:
@@ -100,7 +104,7 @@ class CliTests(unittest.TestCase):
             with patch("trip_sift.cli._print_report"), redirect_stdout(io.StringIO()):
                 with tempfile.TemporaryDirectory() as tmp:
                     out = Path(tmp) / "out.json"
-                    code = main(["flights", "MAD-BCN:2026-09-01", "--save", str(out)])
+                    code = main(["flights", ROUTE, "--save", str(out)])
                     self.assertEqual(code, 0)
                     self.assertTrue(out.exists())
                     self.assertFalse(out.with_suffix(".json.tmp").exists())
@@ -122,7 +126,7 @@ class CliTests(unittest.TestCase):
         )
         with patch("trip_sift.cli.search_flights", return_value=report):
             with patch("trip_sift.cli._print_report"):
-                self.assertEqual(main(["flights", "MAD-BCN:2026-09-01"]), 2)
+                self.assertEqual(main(["flights", ROUTE]), 2)
 
     def test_partial_failure_returns_three(self) -> None:
         report = SearchReport(
@@ -137,20 +141,32 @@ class CliTests(unittest.TestCase):
         )
         with patch("trip_sift.cli.search_flights", return_value=report):
             with patch("trip_sift.cli._print_report"):
-                self.assertEqual(main(["flights", "MAD-BCN:2026-09-01"]), 3)
+                self.assertEqual(main(["flights", ROUTE]), 3)
 
     def test_baggage_buffer_flag_reaches_the_search(self) -> None:
         with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
             with patch("trip_sift.cli._print_report"):
-                main(["flights", "MAD-BCN:2026-09-01", "--baggage-buffer", "0"])
+                main(["flights", ROUTE, "--baggage-buffer", "0"])
         self.assertEqual(search.call_args.kwargs["buffer_eur"], 0)
 
     def test_negative_baggage_buffer_is_rejected_before_searching(self) -> None:
         with patch("trip_sift.cli.search_flights") as search:
             self.assertEqual(
-                main(["flights", "MAD-BCN:2026-09-01", "--baggage-buffer", "-1"]), 1
+                main(["flights", ROUTE, "--baggage-buffer", "-1"]), 1
             )
             search.assert_not_called()
+
+    def test_past_dates_are_rejected_before_starting_chromium(self) -> None:
+        with patch("trip_sift.cli.search_flights") as search:
+            code = main(["flights", f"MAD-BCN:{PAST_DATE.isoformat()}"])
+            self.assertEqual(code, 1)
+            search.assert_not_called()
+
+    def test_today_is_accepted(self) -> None:
+        with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
+            with patch("trip_sift.cli._print_report"):
+                main(["flights", f"MAD-BCN:{date.today().isoformat()}"])
+            search.assert_called_once()
 
 
 class ReportRenderingTests(unittest.TestCase):
