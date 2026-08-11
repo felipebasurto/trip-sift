@@ -6,6 +6,7 @@ import io
 import json
 import os
 import random
+import re
 import time
 from datetime import date, datetime
 from pathlib import Path
@@ -38,21 +39,25 @@ DEFAULT_BAGGAGE_BUFFER_EUR = 70
 
 LOW_COST_NAMES = [
     "AirAsia",
-    "AirAsia X",
     "Batik Air",
-    "Scoot",
-    "Vietjet",
     "Cebu Pacific",
-    "Jetstar",
-    "Peach",
-    "ZIPAIR",
-    "T'way",
-    "Tway",
-    "Jin Air",
-    "VietJet",
-    "IndiGo",
-    "Ryanair",
     "easyJet",
+    "Eurowings",
+    "IndiGo",
+    "Jetstar",
+    "Jin Air",
+    "Norwegian",
+    "Peach",
+    "Pegasus",
+    "Ryanair",
+    "Scoot",
+    "Transavia",
+    "T'way",
+    "Vietjet",
+    "Volotea",
+    "Vueling",
+    "Wizz Air",
+    "ZIPAIR",
 ]
 
 CONSENT_SELECTORS = [
@@ -141,9 +146,19 @@ def parse_route_specs(
     return tuple(queries)
 
 
+def _normalize_airline(airline_text: Optional[str]) -> str:
+    return re.sub(r"[^a-z0-9 ]+", "", (airline_text or "").casefold())
+
+
+_LOW_COST_PATTERNS = tuple(
+    re.compile(r"\b" + re.escape(_normalize_airline(name)) + r"\b")
+    for name in LOW_COST_NAMES
+)
+
+
 def is_low_cost(airline_text: str) -> bool:
-    text = airline_text or ""
-    return any(name in text for name in LOW_COST_NAMES)
+    text = _normalize_airline(airline_text)
+    return any(pattern.search(text) for pattern in _LOW_COST_PATTERNS)
 
 
 def baggage_buffer_eur(
@@ -159,6 +174,8 @@ def _stops_text(stops: object) -> Optional[str]:
         return None
     if isinstance(stops, str):
         return stops
+    if isinstance(stops, int):
+        return "Nonstop" if stops == 0 else f"{stops} stop" + ("s" if stops > 1 else "")
     return str(stops)
 
 
@@ -219,7 +236,14 @@ def _rank_offers(
     seen: set[tuple] = set()
     deduped: list[FlightOffer] = []
     for offer in rows:
-        key = (offer.airline, offer.departure, offer.arrival, offer.price_eur)
+        key = (
+            offer.airline,
+            offer.departure,
+            offer.arrival,
+            offer.price_eur,
+            offer.stops_count,
+            offer.duration_hours,
+        )
         if key in seen:
             continue
         seen.add(key)

@@ -40,16 +40,15 @@ def parse_duration_hours(duration: str | None) -> float | None:
     if not duration:
         return None
     text = duration.replace("\xa0", " ").strip().lower()
-    h = m = 0.0
-    hm = re.search(r"(\d+)\s*h", text)
-    mm = re.search(r"(\d+)\s*min", text)
-    if hm:
-        h = float(hm.group(1))
-    if mm:
-        m = float(mm.group(1))
-    if hm or mm:
-        return h + m / 60.0
-    return None
+    dm = re.search(r"(\d+)\s*(?:d[ií]as?|days?|d)\b", text)
+    hm = re.search(r"(\d+)\s*(?:h|hr|hrs|hours?|horas?)\b", text)
+    mm = re.search(r"(\d+)\s*(?:min|mins|minutes?|minutos?|m)\b", text)
+    if not (dm or hm or mm):
+        return None
+    days = float(dm.group(1)) if dm else 0.0
+    hours = float(hm.group(1)) if hm else 0.0
+    minutes = float(mm.group(1)) if mm else 0.0
+    return days * 24.0 + hours + minutes / 60.0
 
 
 def parse_stops_count(stops: object) -> int | None:

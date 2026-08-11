@@ -10,7 +10,6 @@ from random import Random
 from typing import Optional, Sequence
 from unittest.mock import patch
 
-from trip_sift.cli import main
 from trip_sift.flights import (
     BACKOFF_BASE_SECONDS,
     BACKOFF_JITTER_SECONDS,
@@ -20,6 +19,8 @@ from trip_sift.flights import (
     _normalize_offer,
     _rank_offers,
     _run_search,
+    _stops_text,
+    is_low_cost,
     parse_route_specs,
     search_flights,
     write_report_atomic,
@@ -69,6 +70,33 @@ class FakeSource:
 
     def close(self) -> None:
         self.closed = True
+
+
+class LowCostClassificationTests(unittest.TestCase):
+    def test_matching_ignores_case_and_punctuation(self) -> None:
+        for variant in ("Ryanair", "ryanair", "RYANAIR", "EasyJet", "easyJet"):
+            with self.subTest(variant=variant):
+                self.assertTrue(is_low_cost(variant))
+        self.assertTrue(is_low_cost("T'Way Air"))
+        self.assertTrue(is_low_cost("Tway Air"))
+
+    def test_european_carriers_on_the_documented_routes_are_covered(self) -> None:
+        for airline in ("Vueling", "Wizz Air", "Transavia", "Volotea", "Norwegian"):
+            with self.subTest(airline=airline):
+                self.assertTrue(is_low_cost(airline))
+
+    def test_full_service_carriers_are_not_penalised(self) -> None:
+        for airline in ("Iberia", "Air Europa", "Lufthansa", "Iberia Express", ""):
+            with self.subTest(airline=airline):
+                self.assertFalse(is_low_cost(airline))
+
+    def test_matching_respects_word_boundaries(self) -> None:
+        self.assertFalse(is_low_cost("Peachtree Air"))
+
+    def test_integer_stops_keep_a_readable_raw_label(self) -> None:
+        self.assertEqual(_stops_text(0), "Nonstop")
+        self.assertEqual(_stops_text(1), "1 stop")
+        self.assertEqual(_stops_text(2), "2 stops")
 
 
 class FlightsOrchestrationTests(unittest.TestCase):
@@ -184,6 +212,25 @@ class FlightsOrchestrationTests(unittest.TestCase):
         self.assertEqual(offer.duration, "2 h 50 min")
         self.assertAlmostEqual(offer.duration_hours or 0, 2 + 50 / 60)
         self.assertEqual(offer.stops_count, 0)
+
+    def test_dedupe_keeps_flights_that_differ_only_in_stops(self) -> None:
+        def offer(stops_count: int, hours: float) -> FlightOffer:
+            return FlightOffer(
+                airline="Iberia",
+                departure="08:00",
+                arrival="09:00",
+                price="100 €",
+                price_eur=100.0,
+                duration=f"{hours} h",
+                duration_hours=hours,
+                stops="Nonstop" if stops_count == 0 else "1 stop",
+                stops_count=stops_count,
+                baggage_buffer_eur=0,
+                needs_bag_verify=False,
+            )
+
+        ranked = _rank_offers((offer(0, 1.0), offer(1, 5.0)), top=5)
+        self.assertEqual(len(ranked), 2)
 
     def test_parse_route_specs(self) -> None:
         queries = parse_route_specs(["MAD-BCN:2026-09-01,2026-09-02"], max_stops=0)
