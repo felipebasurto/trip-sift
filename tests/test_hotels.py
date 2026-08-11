@@ -11,15 +11,10 @@ from urllib.parse import parse_qs, urlparse
 
 import trip_sift.hotels as hotels_module
 from trip_sift.hotels import (
-    BACKOFF_BASE_SECONDS,
-    BACKOFF_JITTER_SECONDS,
     CONSENT_SELECTORS,
     DESKTOP_USER_AGENT,
     EMPTY_STATE_SELECTORS,
-    MAX_ATTEMPTS,
     PROPERTY_CARD_SELECTOR,
-    REQUEST_DELAY_SECONDS,
-    REQUEST_JITTER_SECONDS,
     _BookingHotelsSource,
     _HotelPage,
     _is_eligible,
@@ -41,6 +36,13 @@ from trip_sift.models import (
     HotelSearchReport,
     PropertyTypeEvidence,
     SearchErrorCode,
+)
+from trip_sift.orchestration import (
+    BACKOFF_BASE_SECONDS,
+    BACKOFF_JITTER_SECONDS,
+    MAX_ATTEMPTS,
+    REQUEST_DELAY_SECONDS,
+    REQUEST_JITTER_SECONDS,
 )
 
 ScriptedResponse = Union[_HotelPage, Exception]
@@ -558,10 +560,34 @@ class HotelOrchestrationTests(unittest.TestCase):
         self.assertIsInstance(result, HotelQueryFailure)
         assert isinstance(result, HotelQueryFailure)
         self.assertEqual(result.error.code, SearchErrorCode.FETCH_FAILED)
-        self.assertEqual(
-            result.error.message,
-            "Booking.com hotel search failed after 3 attempts.",
+        self.assertEqual(result.error.message, "RuntimeError: blocked")
+
+    def test_missing_chromium_fails_immediately_without_backoff(self) -> None:
+        source = FakeSource(
+            [
+                RuntimeError(
+                    "Executable doesn't exist at /ms-playwright/chromium/headless"
+                )
+            ]
         )
+        sleeps: List[float] = []
+
+        report = _run_search(
+            (query(),),
+            top=8,
+            source=source,
+            sleep=sleeps.append,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10, 10, 0, 0),
+        )
+
+        result = report.queries[0]
+        self.assertIsInstance(result, HotelQueryFailure)
+        assert isinstance(result, HotelQueryFailure)
+        self.assertEqual(result.error.code, SearchErrorCode.BROWSER_UNAVAILABLE)
+        self.assertEqual(len(source.fetch_calls), 1)
+        self.assertEqual(source.reset_calls, 1)
+        self.assertEqual(sleeps, [])
 
     def test_two_queries_sleep_once_between_queries(self) -> None:
         source = FakeSource([_HotelPage(cards=()), _HotelPage(cards=())])

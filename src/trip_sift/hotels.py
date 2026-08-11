@@ -24,6 +24,13 @@ from trip_sift.models import (
     SearchError,
     SearchErrorCode,
 )
+from trip_sift.orchestration import (
+    MAX_ATTEMPTS,
+    NON_RETRIABLE_CODES,
+    classify_failure,
+    inter_query_delay_seconds,
+    retry_backoff_seconds,
+)
 from trip_sift.parsers import (
     parse_cancellation_evidence,
     parse_price_eur,
@@ -32,12 +39,6 @@ from trip_sift.parsers import (
     parse_unit_hints,
 )
 from trip_sift.storage import default_state_dir, write_json_atomic
-
-REQUEST_DELAY_SECONDS = 4.5
-REQUEST_JITTER_SECONDS = 1.5
-MAX_ATTEMPTS = 3
-BACKOFF_BASE_SECONDS = 8.0
-BACKOFF_JITTER_SECONDS = 3.0
 
 BOOKING_SEARCH_URL = "https://www.booking.com/searchresults.html"
 PROPERTY_CARD_SELECTOR = '[data-testid="property-card"]'
@@ -212,6 +213,7 @@ def _run_search(
     for index, query in enumerate(queries):
         applied = build_applied_filters(query)
         outcome: Optional[HotelQueryResult] = None
+        failure: Optional[SearchError] = None
         for attempt in range(MAX_ATTEMPTS):
             try:
                 page = source.fetch(query, applied, fetch_limit)
@@ -232,26 +234,26 @@ def _run_search(
                     offers=ranked[:top],
                 )
                 break
-            except Exception:
+            except Exception as exc:
+                failure = classify_failure(exc, provider="Booking.com")
                 source.reset()
+                if failure.code in NON_RETRIABLE_CODES:
+                    break
                 if attempt + 1 < MAX_ATTEMPTS:
-                    backoff = BACKOFF_BASE_SECONDS * (2**attempt) + random_gen.uniform(
-                        0, BACKOFF_JITTER_SECONDS
-                    )
-                    sleep(backoff)
+                    sleep(retry_backoff_seconds(attempt, random_gen))
         if outcome is None:
             outcome = HotelQueryFailure(
                 query=query,
                 applied=applied,
-                error=SearchError(
+                error=failure
+                or SearchError(
                     code=SearchErrorCode.FETCH_FAILED,
-                    message="Booking.com hotel search failed after 3 attempts.",
+                    message="Booking.com hotel search failed.",
                 ),
             )
         results.append(outcome)
         if index + 1 < len(queries):
-            delay = REQUEST_DELAY_SECONDS + random_gen.uniform(0, REQUEST_JITTER_SECONDS)
-            sleep(delay)
+            sleep(inter_query_delay_seconds(random_gen))
     return HotelSearchReport(searched_at=now(), queries=tuple(results))
 
 
