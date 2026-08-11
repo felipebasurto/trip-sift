@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import atexit
 import contextlib
-import os
 import random
 import time
 from dataclasses import dataclass
@@ -11,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Optional, Protocol, Sequence, Tuple
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
+from trip_sift.browser import BrowserSessionConfig, ChromiumSession
 from trip_sift.models import (
     AppliedHotelFilters,
     CancellationEvidence,
@@ -55,12 +54,12 @@ CONSENT_SELECTORS = (
     'button:has-text("Aceptar todas")',
     '[id*="accept"]',
 )
-BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 DESKTOP_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
+BOOKING_STATE_FILENAME = "pw_state_booking.json"
 
 
 @dataclass(frozen=True)
@@ -288,40 +287,20 @@ def write_hotel_report_atomic(
 
 
 class _BookingHotelsSource:
-    def __init__(self, state_dir: Path) -> None:
-        self._state_dir = state_dir
-        self._state_path = state_dir / "pw_state_booking.json"
-        self._pw = None
-        self._browser = None
-        self._context = None
-        self._atexit_registered = False
-
-    def _ensure_context(self) -> object:
-        if self._context is None:
-            from playwright.sync_api import sync_playwright
-
-            self._state_dir.mkdir(parents=True, exist_ok=True)
-            self._pw = sync_playwright().start()
-            self._browser = self._pw.chromium.launch(headless=True)
-            storage = str(self._state_path) if self._state_path.exists() else None
-            self._context = self._browser.new_context(
+    def __init__(
+        self,
+        state_dir: Path,
+        session: Optional[ChromiumSession] = None,
+    ) -> None:
+        self._session = session or ChromiumSession(
+            state_dir,
+            BrowserSessionConfig(
+                state_filename=BOOKING_STATE_FILENAME,
                 locale="es-ES",
                 viewport={"width": 1280, "height": 900},
                 user_agent=DESKTOP_USER_AGENT,
-                storage_state=storage,
-            )
-            self._context.route("**/*", self._block_heavy_resources)
-            if not self._atexit_registered:
-                atexit.register(self.close)
-                self._atexit_registered = True
-        return self._context
-
-    @staticmethod
-    def _block_heavy_resources(route) -> None:
-        if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
-            route.abort()
-        else:
-            route.continue_()
+            ),
+        )
 
     @staticmethod
     def _dismiss_consent(page) -> None:
@@ -398,7 +377,7 @@ class _BookingHotelsSource:
     ) -> _HotelPage:
         if limit <= 0:
             raise ValueError("limit must be positive")
-        page = self._ensure_context().new_page()
+        page = self._session.new_page()
         try:
             page.goto(
                 applied.url,
@@ -429,34 +408,8 @@ class _BookingHotelsSource:
             with contextlib.suppress(Exception):
                 page.close()
 
-    def _persist_state(self) -> None:
-        if self._context is None:
-            return
-        self._state_dir.mkdir(parents=True, exist_ok=True)
-        temporary = self._state_path.with_suffix(".json.tmp")
-        try:
-            self._context.storage_state(path=str(temporary))
-            os.replace(temporary, self._state_path)
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                temporary.unlink()
-
-    def _teardown(self) -> None:
-        for obj in (self._context, self._browser):
-            if obj is not None:
-                with contextlib.suppress(Exception):
-                    obj.close()
-        if self._pw is not None:
-            with contextlib.suppress(Exception):
-                self._pw.stop()
-        self._pw = self._browser = self._context = None
-
     def reset(self) -> None:
-        with contextlib.suppress(Exception):
-            self._persist_state()
-        self._teardown()
+        self._session.reset()
 
     def close(self) -> None:
-        with contextlib.suppress(Exception):
-            self._persist_state()
-        self._teardown()
+        self._session.close()

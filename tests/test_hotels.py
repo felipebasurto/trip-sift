@@ -172,91 +172,20 @@ class FakePage:
         self.closed = True
 
 
-class FakeContext:
-    def __init__(
-        self,
-        page: FakePage,
-        *,
-        storage_error: Exception | None = None,
-    ) -> None:
+class FakeSession:
+    def __init__(self, page: FakePage) -> None:
         self.page = page
-        self.storage_error = storage_error
-        self.closed = False
-        self.route_calls: List[Tuple[str, object]] = []
-        self.storage_paths: List[str] = []
+        self.reset_calls = 0
+        self.close_calls = 0
 
     def new_page(self) -> FakePage:
         return self.page
 
-    def storage_state(self, *, path: str) -> None:
-        self.storage_paths.append(path)
-        if self.storage_error is not None:
-            raise self.storage_error
-        Path(path).write_text('{"cookies": []}', encoding="utf-8")
-
-    def route(self, pattern: str, handler: object) -> None:
-        self.route_calls.append((pattern, handler))
+    def reset(self) -> None:
+        self.reset_calls += 1
 
     def close(self) -> None:
-        self.closed = True
-
-
-class FakeBrowser:
-    def __init__(self, context: FakeContext | None = None) -> None:
-        self.context = context
-        self.closed = False
-        self.context_options: List[dict[str, object]] = []
-
-    def new_context(self, **options: object) -> FakeContext:
-        self.context_options.append(options)
-        if self.context is None:
-            raise RuntimeError("missing fake context")
-        return self.context
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class FakeChromium:
-    def __init__(self, browser: FakeBrowser) -> None:
-        self.browser = browser
-        self.launch_options: List[dict[str, object]] = []
-
-    def launch(self, **options: object) -> FakeBrowser:
-        self.launch_options.append(options)
-        return self.browser
-
-
-class FakePlaywright:
-    def __init__(self, chromium: FakeChromium | None = None) -> None:
-        self.chromium = chromium
-        self.stopped = False
-
-    def stop(self) -> None:
-        self.stopped = True
-
-
-class FakePlaywrightStarter:
-    def __init__(self, playwright: FakePlaywright) -> None:
-        self.playwright = playwright
-        self.start_calls = 0
-
-    def start(self) -> FakePlaywright:
-        self.start_calls += 1
-        return self.playwright
-
-
-class FakeRoute:
-    def __init__(self, resource_type: str) -> None:
-        self.request = type("Request", (), {"resource_type": resource_type})()
-        self.aborted = False
-        self.continued = False
-
-    def abort(self) -> None:
-        self.aborted = True
-
-    def continue_(self) -> None:
-        self.continued = True
+        self.close_calls += 1
 
 
 def query(**overrides: object) -> HotelQuery:
@@ -759,63 +688,16 @@ class HotelOrchestrationTests(unittest.TestCase):
 
 class BookingHotelsSourceTests(unittest.TestCase):
     def source_for(self, page: FakePage, state_dir: Path) -> _BookingHotelsSource:
-        source = _BookingHotelsSource(state_dir)
-        source._context = FakeContext(page)
-        return source
+        return _BookingHotelsSource(state_dir, session=FakeSession(page))
 
-    def test_ensure_context_configures_browser_and_registers_atexit_once(self) -> None:
-        context = FakeContext(FakePage())
-        browser = FakeBrowser(context)
-        chromium = FakeChromium(browser)
-        playwright = FakePlaywright(chromium)
-        starter = FakePlaywrightStarter(playwright)
-
+    def test_default_session_uses_booking_browser_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            state_dir = Path(tmp)
-            state_path = state_dir / "pw_state_booking.json"
-            state_path.write_text('{"cookies": []}', encoding="utf-8")
-            source = _BookingHotelsSource(state_dir)
-
-            with (
-                patch(
-                    "playwright.sync_api.sync_playwright",
-                    return_value=starter,
-                ),
-                patch("trip_sift.hotels.atexit.register") as register,
-            ):
-                first = source._ensure_context()
-                second = source._ensure_context()
-
-            self.assertIs(first, context)
-            self.assertIs(second, context)
-            self.assertEqual(starter.start_calls, 1)
-            self.assertEqual(chromium.launch_options, [{"headless": True}])
-            self.assertEqual(
-                browser.context_options,
-                [
-                    {
-                        "locale": "es-ES",
-                        "viewport": {"width": 1280, "height": 900},
-                        "user_agent": DESKTOP_USER_AGENT,
-                        "storage_state": str(state_path),
-                    }
-                ],
-            )
-            self.assertEqual(context.route_calls[0][0], "**/*")
-            register.assert_called_once_with(source.close)
-            source.close()
-
-    def test_resource_blocking_aborts_heavy_and_continues_other_requests(self) -> None:
-        image_route = FakeRoute("image")
-        script_route = FakeRoute("script")
-
-        _BookingHotelsSource._block_heavy_resources(image_route)
-        _BookingHotelsSource._block_heavy_resources(script_route)
-
-        self.assertTrue(image_route.aborted)
-        self.assertFalse(image_route.continued)
-        self.assertFalse(script_route.aborted)
-        self.assertTrue(script_route.continued)
+            source = _BookingHotelsSource(Path(tmp))
+            config = source._session._config
+            self.assertEqual(config.state_filename, "pw_state_booking.json")
+            self.assertEqual(config.locale, "es-ES")
+            self.assertEqual(config.viewport, {"width": 1280, "height": 900})
+            self.assertEqual(config.user_agent, DESKTOP_USER_AGENT)
 
     def test_visible_consent_button_is_clicked(self) -> None:
         button = FakeLocator(count=1, visible=True)
@@ -921,55 +803,14 @@ class BookingHotelsSourceTests(unittest.TestCase):
         self.assertEqual((result.raw_count, result.eligible_count), (1, 0))
         self.assertEqual(result.offers, ())
 
-    def test_close_persists_state_atomically_and_tears_down(self) -> None:
-        page = FakePage()
-        context = FakeContext(page)
-        browser = FakeBrowser()
-        playwright = FakePlaywright()
-
+    def test_close_and_reset_delegate_to_session(self) -> None:
+        session = FakeSession(FakePage())
         with tempfile.TemporaryDirectory() as tmp:
-            source = _BookingHotelsSource(Path(tmp))
-            source._context = context
-            source._browser = browser
-            source._pw = playwright
-            source.close()
-
-            state_path = Path(tmp) / "pw_state_booking.json"
-            self.assertEqual(
-                state_path.read_text(encoding="utf-8"),
-                '{"cookies": []}',
-            )
-            self.assertFalse((Path(tmp) / "pw_state_booking.json.tmp").exists())
-            self.assertEqual(
-                context.storage_paths,
-                [str(Path(tmp) / "pw_state_booking.json.tmp")],
-            )
-
-        self.assertTrue(context.closed)
-        self.assertTrue(browser.closed)
-        self.assertTrue(playwright.stopped)
-        self.assertIsNone(source._context)
-        self.assertIsNone(source._browser)
-        self.assertIsNone(source._pw)
-
-    def test_reset_tears_down_when_state_persistence_fails(self) -> None:
-        context = FakeContext(FakePage(), storage_error=RuntimeError("state write"))
-        browser = FakeBrowser()
-        playwright = FakePlaywright()
-
-        with tempfile.TemporaryDirectory() as tmp:
-            source = _BookingHotelsSource(Path(tmp))
-            source._context = context
-            source._browser = browser
-            source._pw = playwright
+            source = _BookingHotelsSource(Path(tmp), session=session)
             source.reset()
-
-        self.assertTrue(context.closed)
-        self.assertTrue(browser.closed)
-        self.assertTrue(playwright.stopped)
-        self.assertIsNone(source._context)
-        self.assertIsNone(source._browser)
-        self.assertIsNone(source._pw)
+            source.close()
+        self.assertEqual(session.reset_calls, 1)
+        self.assertEqual(session.close_calls, 1)
 
 
 if __name__ == "__main__":
