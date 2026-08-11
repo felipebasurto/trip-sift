@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import atexit
-import contextlib
 import json
 import os
 import random
@@ -11,11 +9,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional, Protocol, Sequence, Tuple
 
-from fast_flights import FlightData, Passengers
-from fast_flights.core import parse_response
-from fast_flights.filter import TFSData
-from fast_flights.schema import Result
-
+from trip_sift.browser import GoogleFlightsSource
 from trip_sift.models import (
     FlightOffer,
     FlightQuery,
@@ -58,16 +52,6 @@ LOW_COST_NAMES = [
     "Wizz Air",
     "ZIPAIR",
 ]
-
-CONSENT_SELECTORS = [
-    'text="Accept all"',
-    'text="Reject all"',
-    'text="Aceptar todo"',
-    'text="Rechazar todo"',
-    'button:has-text("Accept")',
-]
-
-BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 
 NO_RESULTS_MARKERS = ("no flights found",)
 BROWSER_UNAVAILABLE_MARKERS = (
@@ -357,8 +341,7 @@ def search_flights(
         raise ValueError("top must be positive")
     if buffer_eur < 0:
         raise ValueError("buffer_eur must not be negative")
-    state_dir = default_state_dir()
-    source = _GoogleFlightsSource(state_dir)
+    source = GoogleFlightsSource(default_state_dir())
     try:
         return _run_search(
             queries,
@@ -380,124 +363,3 @@ def write_report_atomic(report: SearchReport, destination: Path) -> None:
     tmp = destination.with_suffix(destination.suffix + ".tmp")
     tmp.write_text(payload, encoding="utf-8")
     os.replace(tmp, destination)
-
-
-class _HtmlResponse:
-    status_code = 200
-
-    def __init__(self, html: str) -> None:
-        self.text = html
-        self.text_markdown = html
-
-
-class _GoogleFlightsSource:
-    def __init__(self, state_dir: Path) -> None:
-        self._state_dir = state_dir
-        self._state_path = state_dir / "pw_state_google.json"
-        self._pw = None
-        self._browser = None
-        self._context = None
-        self._atexit_registered = False
-
-    def _ensure_context(self) -> object:
-        if self._context is None:
-            from playwright.sync_api import sync_playwright
-
-            self._state_dir.mkdir(parents=True, exist_ok=True)
-            self._pw = sync_playwright().start()
-            self._browser = self._pw.chromium.launch(headless=True)
-            storage = str(self._state_path) if self._state_path.exists() else None
-            self._context = self._browser.new_context(locale="en-US", storage_state=storage)
-            self._context.route("**/*", self._block_heavy_resources)
-            if not self._atexit_registered:
-                atexit.register(self.close)
-                self._atexit_registered = True
-        return self._context
-
-    @staticmethod
-    def _block_heavy_resources(route) -> None:
-        if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
-            route.abort()
-        else:
-            route.continue_()
-
-    def _fetch_html(self, url: str) -> str:
-        page = self._ensure_context().new_page()
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-            if "consent.google" in page.url:
-                for sel in CONSENT_SELECTORS:
-                    try:
-                        btn = page.locator(sel).first
-                        if btn.count() > 0:
-                            btn.click(timeout=5_000)
-                            break
-                    except Exception:
-                        continue
-                page.wait_for_timeout(1_500)
-            page.locator(".eQ35Ce").wait_for(timeout=60_000)
-            return page.evaluate(
-                "() => document.querySelector('[role=\"main\"]')?.innerHTML || ''"
-            )
-        finally:
-            with contextlib.suppress(Exception):
-                page.close()
-
-    def _build_tfs(self, query: FlightQuery) -> TFSData:
-        fd = FlightData(
-            date=query.departure_date.isoformat(),
-            from_airport=query.origin,
-            to_airport=query.destination,
-            max_stops=query.max_stops,
-        )
-        return TFSData.from_interface(
-            flight_data=[fd],
-            trip="one-way",
-            passengers=Passengers(adults=1),
-            seat="economy",
-            max_stops=query.max_stops,
-        )
-
-    def _fetch_params(self, tfs: TFSData) -> dict[str, str]:
-        return {
-            "tfs": tfs.as_b64().decode("utf-8"),
-            "hl": "en",
-            "tfu": "EgQIABABIgA",
-            "curr": "EUR",
-        }
-
-    def fetch(self, query: FlightQuery) -> Result:
-        tfs = self._build_tfs(query)
-        params = self._fetch_params(tfs)
-        qs = "&".join(f"{k}={v}" for k, v in params.items())
-        url = f"https://www.google.com/travel/flights?{qs}"
-        return parse_response(_HtmlResponse(self._fetch_html(url)))
-
-    def reset(self) -> None:
-        if self._context is not None:
-            with contextlib.suppress(Exception):
-                self._context.storage_state(path=str(self._state_path))
-        for obj in (self._context, self._browser):
-            if obj is not None:
-                with contextlib.suppress(Exception):
-                    obj.close()
-        if self._pw is not None:
-            with contextlib.suppress(Exception):
-                self._pw.stop()
-        self._pw = self._browser = self._context = None
-
-    def close(self) -> None:
-        if self._context is not None:
-            with contextlib.suppress(Exception):
-                self._state_dir.mkdir(parents=True, exist_ok=True)
-                tmp = self._state_path.with_suffix(".json.tmp")
-                self._context.storage_state(path=str(tmp))
-                os.replace(tmp, self._state_path)
-        for obj in (self._context, self._browser):
-            if obj is not None:
-                with contextlib.suppress(Exception):
-                    obj.close()
-        if self._pw is not None:
-            with contextlib.suppress(Exception):
-                self._pw.stop()
-        self._pw = self._browser = self._context = None

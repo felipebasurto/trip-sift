@@ -355,7 +355,7 @@ class FlightsOrchestrationTests(unittest.TestCase):
                 )
             }
         )
-        with patch("trip_sift.flights._GoogleFlightsSource", return_value=source):
+        with patch("trip_sift.flights.GoogleFlightsSource", return_value=source):
             search_flights((query,), top=1)
         self.assertTrue(source.closed)
 

@@ -4,7 +4,8 @@ import unittest
 
 from fast_flights.core import parse_response
 
-from trip_sift.flights import _HtmlResponse, _normalize_offer
+from trip_sift.browser import HtmlResponse
+from trip_sift.flights import _normalize_offer
 
 
 def build_card(
@@ -32,7 +33,7 @@ def build_results_page(*cards: str) -> str:
 
 
 def scrape(*cards: str):
-    return parse_response(_HtmlResponse(build_results_page(*cards))).flights
+    return parse_response(HtmlResponse(build_results_page(*cards))).flights
 
 
 class ProviderSeamTests(unittest.TestCase):
