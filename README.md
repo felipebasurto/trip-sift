@@ -205,7 +205,7 @@ Both run a live search with the same Chromium and the same pacing as the CLI.
 - Flight ranking adds a flat estimate for known low-cost carriers, not a fare quote. The low-cost list is partial, so an airline missing from it is not evidence of a bag-inclusive fare. Confirm the checked bag on Google Flights before booking.
 - Hotel cancellation and property type are reported as observed evidence, and `unknown` means the card did not say. `--entire-home` therefore cannot remove every non-home. Confirm the final total and the cancellation terms on Booking.com before booking.
 - Finding nothing eligible still exits `0` and prints `(no eligible offers)` or `(no eligible stays)`. Widen the filters or check the route.
-- If Chromium is missing you get `browser_unavailable`. Run `.venv/bin/playwright install chromium`.
+- If Chromium is missing you get `browser_unavailable`. Run `uv run playwright install chromium`.
 - After repeated failures, stop for 30 to 60 minutes and retry a small query set.
 
 ## Browser state

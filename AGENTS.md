@@ -4,10 +4,11 @@
 
 - `src/trip_sift/models.py` owns the domain types and JSON mapping.
 - `src/trip_sift/parsers.py` owns pure text parsers for flight and hotel card fields.
-- `src/trip_sift/browser.py` owns the Chromium session, consent flow, and Google Flights URL building.
-- `src/trip_sift/flights.py` owns route parsing, retries, delays, filtering, ranking, and orchestration. It is pure and offline-testable.
-- `src/trip_sift/hotels.py` owns Booking.com access, retries, filters, evidence checks, and ranking. It still holds its own Chromium session inline, so the two engines are asymmetric: flights drive the browser through `browser.py`, hotels do not. Do not assume `browser.py` covers hotels.
-- `src/trip_sift/storage.py` owns the external state directory and atomic JSON writes. Anything that writes to disk goes through it, except Playwright's own `storage_state`, which writes the file itself and so is renamed into place by `browser.py`.
+- `src/trip_sift/browser.py` owns `BrowserSessionConfig`, `ChromiumSession`, Google consent, and Google Flights URL building. Both providers compose a session.
+- `src/trip_sift/orchestration.py` owns shared pacing, backoff, and failure classification for both providers.
+- `src/trip_sift/flights.py` owns route parsing, filtering, ranking, and the flight search loop. It is pure and offline-testable outside the browser source.
+- `src/trip_sift/hotels.py` owns Booking.com page interaction, filters, evidence checks, ranking, and the hotel search loop. Session lifecycle lives in `browser.py`.
+- `src/trip_sift/storage.py` owns the external state directory and atomic JSON writes. Anything that writes to disk goes through it, except Playwright's own `storage_state`, which writes the file itself and so is renamed into place by `ChromiumSession`.
 - `src/trip_sift/cli.py` owns argument parsing, terminal output, and optional atomic JSON saves.
 
 ## Invariants
@@ -36,16 +37,19 @@
 
 ## Tests
 
+Prefer the locked checkout workflow:
+
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
-python3 -m ruff check src tests
+uv sync --locked
+uv run python -m unittest discover -s tests -v
+uv run ruff check src tests
 ```
 
-Tests are offline. They must not launch Chromium or use the network. CI runs the suite on Python 3.9 through 3.13.
+`pip install -e .` still works, but `uv` is the reproducible path for this tree. Tests are offline. They must not launch Chromium or use the network. CI runs the suite on Python 3.9 through 3.13.
 
 `tests/test_provider_seam.py` is the important one for flights. It drives synthetic markup through the real `fast_flights.parse_response`, because trip-sift never receives Google's text, only what the dependency made of it. Test a parser against the dependency's output, not the site's. Anchoring at the wrong layer is how a broken `--max-stops 0` passed 24 green tests.
 
-`tests/test_json_contract.py` pins the flight JSON shape. A renamed or dropped key is a breaking change for anything reading `--save` output.
+`tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output.
 
 ## Private-data boundary
 
