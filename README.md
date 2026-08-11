@@ -13,19 +13,19 @@ This is an unofficial project with no affiliation to Google or Booking.com. Eith
 
 ## Install
 
+Needs [uv](https://docs.astral.sh/uv/) and Python 3.9 or newer.
+
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e .
-.venv/bin/playwright install chromium
+uv sync
+uv run playwright install chromium
 ```
 
-Requires Python 3.9 or newer. The `pip` upgrade is not optional on 3.9, whose bundled pip 21.2.4 cannot install a `pyproject.toml`-only project in editable mode. After these steps the CLI is at `.venv/bin/trip-sift`.
+After that, run the CLI with `uv run trip-sift`. The lockfile (`uv.lock`) pins the exact dependency graph used in CI. A plain `pip install -e .` still works if you prefer pip, but then you must install Chromium yourself and you lose the locked transitive versions.
 
 ## Search flights
 
 ```bash
-.venv/bin/trip-sift flights MAD-BCN:2026-09-01
+uv run trip-sift flights MAD-BCN:2026-09-01
 ```
 
 ```text
@@ -40,7 +40,7 @@ One adult, one-way, economy. Up to eight offers per query, ordered by the ranked
 ## Search hotels
 
 ```bash
-.venv/bin/trip-sift hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
+uv run trip-sift hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
 ```
 
 ```text
@@ -69,7 +69,7 @@ You or an agent pass a route and dates. The CLI validates the input before any b
 ## Compare dates and save JSON
 
 ```bash
-.venv/bin/trip-sift flights \
+uv run trip-sift flights \
   MAD-BCN:2026-09-01,2026-09-02,2026-09-03 \
   --max-stops 0 \
   --top 5 \
@@ -221,8 +221,8 @@ Delete the affected provider file if consent or scraping breaks. It is recreated
 ## Tests
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python -m ruff check src tests
+uv run python -m unittest discover -s tests -v
+uv run ruff check src tests
 ```
 
 Fully offline. They never launch Chromium and never touch the network. `tests/test_provider_seam.py` drives synthetic markup through the real `fast-flights` parser, because that dependency rewrites text before `trip-sift` ever sees it. CI runs the suite on Python 3.9 through 3.13.

@@ -33,3 +33,9 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+    "ruff==0.15.12",
+]
