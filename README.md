@@ -167,10 +167,11 @@ Delete that file if consent or scraping breaks. It is recreated on the next run.
 ## Tests
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m ruff check src tests
 ```
 
-Fully offline. They never launch Chromium and never touch the network.
+Fully offline. They never launch Chromium and never touch the network. `tests/test_provider_seam.py` drives synthetic markup through the real `fast-flights` parser, because that dependency rewrites text before `trip-sift` ever sees it. CI runs the suite on Python 3.9 through 3.13.
 
 ## Privacy boundary
 

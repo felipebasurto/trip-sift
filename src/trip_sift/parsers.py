@@ -6,9 +6,7 @@ import re
 def parse_price_eur(price_text: str | None) -> float | None:
     if not price_text:
         return None
-    cleaned = (
-        price_text.replace("\xa0", "").replace(" ", "").replace("€", "").strip()
-    )
+    cleaned = price_text.replace("\xa0", "").replace(" ", "").replace("€", "").strip()
     m = re.search(r"([\d.,]+)", cleaned)
     if not m:
         return None

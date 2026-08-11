@@ -92,7 +92,11 @@ class ProviderSeamTests(unittest.TestCase):
         raw = scrape(build_card(price="€1,234", duration="2 hr 50 min", stops="1 stop"))[0]
         offer = _normalize_offer(raw, max_stops=1)
         assert offer is not None
-        for text, number in ((offer.price, offer.price_eur), (offer.duration, offer.duration_hours)):
+        raw_and_parsed = (
+            (offer.price, offer.price_eur),
+            (offer.duration, offer.duration_hours),
+        )
+        for text, number in raw_and_parsed:
             self.assertTrue(text)
             self.assertIsNotNone(number)
         self.assertIsNotNone(offer.stops)

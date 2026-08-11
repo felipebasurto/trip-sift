@@ -30,6 +30,8 @@ BACKOFF_JITTER_SECONDS = 3.0
 
 DEFAULT_BAGGAGE_BUFFER_EUR = 70
 
+UNKNOWN_DURATION_SORTS_LAST = float("inf")
+
 LOW_COST_NAMES = [
     "AirAsia",
     "Batik Air",
@@ -73,17 +75,12 @@ def classify_failure(exc: BaseException) -> SearchError:
     if any(marker in lowered for marker in BROWSER_UNAVAILABLE_MARKERS):
         return SearchError(
             code=SearchErrorCode.BROWSER_UNAVAILABLE,
-            message=(
-                "Chromium is not available to Playwright. "
-                "Run 'playwright install chromium'."
-            ),
+            message=("Chromium is not available to Playwright. Run 'playwright install chromium'."),
         )
     return SearchError(code=SearchErrorCode.FETCH_FAILED, message=text)
 
 
-NON_RETRIABLE_CODES = frozenset(
-    {SearchErrorCode.NO_RESULTS, SearchErrorCode.BROWSER_UNAVAILABLE}
-)
+NON_RETRIABLE_CODES = frozenset({SearchErrorCode.NO_RESULTS, SearchErrorCode.BROWSER_UNAVAILABLE})
 
 
 class _ProviderOffer(Protocol):
@@ -100,14 +97,11 @@ class _ProviderResult(Protocol):
 
 
 class _FlightSource(Protocol):
-    def fetch(self, query: FlightQuery) -> _ProviderResult:
-        ...
+    def fetch(self, query: FlightQuery) -> _ProviderResult: ...
 
-    def reset(self) -> None:
-        ...
+    def reset(self) -> None: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
 
 def default_state_dir() -> Path:
@@ -166,8 +160,7 @@ def _normalize_airline(airline_text: Optional[str]) -> str:
 
 
 _LOW_COST_PATTERNS = tuple(
-    re.compile(r"\b" + re.escape(_normalize_airline(name)) + r"\b")
-    for name in LOW_COST_NAMES
+    re.compile(r"\b" + re.escape(_normalize_airline(name)) + r"\b") for name in LOW_COST_NAMES
 )
 
 
@@ -240,7 +233,10 @@ def _rank_offers(
 ) -> Tuple[FlightOffer, ...]:
     rows = sorted(
         offers,
-        key=lambda o: (_effective_cost(o), o.duration_hours if o.duration_hours is not None else 99.0),
+        key=lambda o: (
+            _effective_cost(o),
+            o.duration_hours if o.duration_hours is not None else UNKNOWN_DURATION_SORTS_LAST,
+        ),
     )
     seen: set[tuple] = set()
     deduped: list[FlightOffer] = []
@@ -288,11 +284,7 @@ def _run_search(
                 offers = [
                     offer
                     for raw in provider_result.flights
-                    if (
-                        offer := _normalize_offer(
-                            raw, query.max_stops, buffer_eur=buffer_eur
-                        )
-                    )
+                    if (offer := _normalize_offer(raw, query.max_stops, buffer_eur=buffer_eur))
                     is not None
                 ]
                 outcome = QuerySuccess(

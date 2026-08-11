@@ -151,9 +151,7 @@ class CliTests(unittest.TestCase):
 
     def test_negative_baggage_buffer_is_rejected_before_searching(self) -> None:
         with patch("trip_sift.cli.search_flights") as search:
-            self.assertEqual(
-                main(["flights", ROUTE, "--baggage-buffer", "-1"]), 1
-            )
+            self.assertEqual(main(["flights", ROUTE, "--baggage-buffer", "-1"]), 1)
             search.assert_not_called()
 
     def test_past_dates_are_rejected_before_starting_chromium(self) -> None:

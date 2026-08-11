@@ -4,7 +4,6 @@ import unittest
 
 from trip_sift.parsers import parse_duration_hours, parse_price_eur, parse_stops_count
 
-
 PRICE_CASES = [
     ("€129", 129.0),
     ("€1234", 1234.0),

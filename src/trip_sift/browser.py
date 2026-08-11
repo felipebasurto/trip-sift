@@ -88,9 +88,7 @@ class GoogleFlightsSource:
             self._pw = sync_playwright().start()
             self._browser = self._pw.chromium.launch(headless=True)
             storage = str(self._state_path) if self._state_path.exists() else None
-            self._context = self._browser.new_context(
-                locale="en-US", storage_state=storage
-            )
+            self._context = self._browser.new_context(locale="en-US", storage_state=storage)
             self._context.route("**/*", self._block_heavy_resources)
             if not self._atexit_registered:
                 atexit.register(self.close)
@@ -111,9 +109,7 @@ class GoogleFlightsSource:
             if "consent.google" in page.url:
                 self._dismiss_consent(page)
             page.locator(RESULTS_SELECTOR).wait_for(timeout=PAGE_TIMEOUT_MS)
-            return page.evaluate(
-                "() => document.querySelector('[role=\"main\"]')?.innerHTML || ''"
-            )
+            return page.evaluate("() => document.querySelector('[role=\"main\"]')?.innerHTML || ''")
         finally:
             with contextlib.suppress(Exception):
                 page.close()

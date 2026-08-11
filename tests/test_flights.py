@@ -204,12 +204,9 @@ class FlightsOrchestrationTests(unittest.TestCase):
         )
         sleeps: list[float] = []
         expected_rng = Random(0)
-        inter_query = REQUEST_DELAY_SECONDS + expected_rng.uniform(
-            0, REQUEST_JITTER_SECONDS
-        )
+        inter_query = REQUEST_DELAY_SECONDS + expected_rng.uniform(0, REQUEST_JITTER_SECONDS)
         expected_backoffs = [
-            BACKOFF_BASE_SECONDS * (2**attempt)
-            + expected_rng.uniform(0, BACKOFF_JITTER_SECONDS)
+            BACKOFF_BASE_SECONDS * (2**attempt) + expected_rng.uniform(0, BACKOFF_JITTER_SECONDS)
             for attempt in range(MAX_ATTEMPTS - 1)
         ]
 

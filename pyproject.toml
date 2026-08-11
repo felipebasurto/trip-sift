@@ -15,8 +15,21 @@ dependencies = [
     "playwright==1.60.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/felipebasurto/trip-sift"
+Repository = "https://github.com/felipebasurto/trip-sift"
+Issues = "https://github.com/felipebasurto/trip-sift/issues"
+
 [project.scripts]
 trip-sift = "trip_sift.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]

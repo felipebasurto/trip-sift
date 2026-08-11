@@ -14,7 +14,6 @@ from trip_sift.flights import (
 )
 from trip_sift.models import FlightQuery, QueryFailure, QuerySuccess
 
-
 FLIGHTS_EXAMPLES = """\
 Examples:
   trip-sift flights MAD-BCN:2026-09-01
@@ -32,9 +31,7 @@ def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
     today = date.today()
     for query in queries:
         if query.departure_date < today:
-            raise ValueError(
-                f"departure date is in the past: {query.departure_date.isoformat()}"
-            )
+            raise ValueError(f"departure date is in the past: {query.departure_date.isoformat()}")
     return queries
 
 
