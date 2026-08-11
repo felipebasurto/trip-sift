@@ -54,10 +54,11 @@ LOW_COST_NAMES = [
 ]
 
 CONSENT_SELECTORS = [
-    'text="Aceptar todo"',
     'text="Accept all"',
+    'text="Reject all"',
+    'text="Aceptar todo"',
     'text="Rechazar todo"',
-    'button:has-text("Aceptar")',
+    'button:has-text("Accept")',
 ]
 
 BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
@@ -322,7 +323,7 @@ class _GoogleFlightsSource:
             self._pw = sync_playwright().start()
             self._browser = self._pw.chromium.launch(headless=True)
             storage = str(self._state_path) if self._state_path.exists() else None
-            self._context = self._browser.new_context(locale="es-ES", storage_state=storage)
+            self._context = self._browser.new_context(locale="en-US", storage_state=storage)
             self._context.route("**/*", self._block_heavy_resources)
             if not self._atexit_registered:
                 atexit.register(self.close)
@@ -376,7 +377,7 @@ class _GoogleFlightsSource:
     def _fetch_params(self, tfs: TFSData) -> dict[str, str]:
         return {
             "tfs": tfs.as_b64().decode("utf-8"),
-            "hl": "es",
+            "hl": "en",
             "tfu": "EgQIABABIgA",
             "curr": "EUR",
         }

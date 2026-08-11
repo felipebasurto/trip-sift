@@ -77,7 +77,7 @@ class FlightsOrchestrationTests(unittest.TestCase):
         q_fail = FlightQuery("MAD", "LHR", date(2026, 9, 2), max_stops=1)
         ok_result = FakeResult(
             flights=[
-                FakeOffer("Air One", "08:00", "09:00", "99 €", "1 h", "Directo"),
+                FakeOffer("Air One", "08:00", "09:00", "99 €", "1 h", 0),
             ]
         )
         source = FakeSource(
@@ -116,16 +116,17 @@ class FlightsOrchestrationTests(unittest.TestCase):
         for got, want in zip(sleeps[1:], expected_backoffs):
             self.assertAlmostEqual(got, want)
 
-    def test_max_stops_zero_filters_one_stop(self) -> None:
-        direct = FakeOffer("Air", "08:00", "09:00", "100 €", "1 h", "Directo")
-        one_stop = FakeOffer("Air", "10:00", "13:00", "80 €", "3 h", "1 escala")
+    def test_max_stops_zero_keeps_only_nonstop(self) -> None:
+        nonstop = FakeOffer("Air", "08:00", "09:00", "100 €", "1 h", 0)
+        one_stop = FakeOffer("Air", "10:00", "13:00", "80 €", "3 h", 1)
+        self.assertIsNotNone(_normalize_offer(nonstop, max_stops=0))
+        self.assertIsNone(_normalize_offer(one_stop, max_stops=0))
+        self.assertIsNotNone(_normalize_offer(one_stop, max_stops=1))
+
+    def test_unlabelled_stops_are_rejected_when_only_direct_flights_are_wanted(self) -> None:
         unknown = FakeOffer("Air", "14:00", "15:00", "90 €", "1 h", "Unknown")
-        offer_direct = _normalize_offer(direct, max_stops=0)
-        offer_stop = _normalize_offer(one_stop, max_stops=0)
-        offer_unknown = _normalize_offer(unknown, max_stops=0)
-        self.assertIsNotNone(offer_direct)
-        self.assertIsNone(offer_stop)
-        self.assertIsNone(offer_unknown)
+        self.assertIsNone(_normalize_offer(unknown, max_stops=0))
+        self.assertIsNotNone(_normalize_offer(unknown, max_stops=1))
 
     def test_rank_dedupe_and_baggage(self) -> None:
         offers = (
@@ -213,7 +214,7 @@ class FlightsOrchestrationTests(unittest.TestCase):
                             "09:00",
                             "99 €",
                             "1 h",
-                            "Directo",
+                            0,
                         )
                     ]
                 )

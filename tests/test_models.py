@@ -79,7 +79,7 @@ class ModelTests(unittest.TestCase):
         data = report.to_dict()
         self.assertEqual(data["schema_version"], 1)
         self.assertEqual(data["currency"], "EUR")
-        self.assertEqual(data["locale"], "es")
+        self.assertEqual(data["locale"], "en")
         self.assertEqual(data["queries"][0]["status"], "error")
         self.assertEqual(data["queries"][0]["error"]["code"], "fetch_failed")
         json.dumps(data)

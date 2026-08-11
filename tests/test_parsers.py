@@ -6,6 +6,9 @@ from trip_sift.parsers import parse_duration_hours, parse_price_eur, parse_stops
 
 
 PRICE_CASES = [
+    ("€129", 129.0),
+    ("€1234", 1234.0),
+    ("€1234.56", 1234.56),
     ("1.024 €", 1024.0),
     ("520 €", 520.0),
     ("12,50 €", 12.5),

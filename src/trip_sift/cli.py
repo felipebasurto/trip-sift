@@ -59,7 +59,7 @@ def _exit_code(report) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Search Google Flights locally (EUR, es locale)",
+        description="Search Google Flights locally (EUR prices, en locale)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=FLIGHTS_EXAMPLES,
     )
@@ -67,7 +67,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     flights = sub.add_parser(
         "flights",
-        help="One-way Google Flights search (EUR, es)",
+        help="One-way Google Flights search (EUR prices)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=FLIGHTS_EXAMPLES,
     )

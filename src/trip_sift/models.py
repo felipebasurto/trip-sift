@@ -120,7 +120,7 @@ class SearchReport:
     queries: Tuple[QueryResult, ...]
     schema_version: int = field(init=False, default=1)
     currency: Literal["EUR"] = field(init=False, default="EUR")
-    locale: Literal["es"] = field(init=False, default="es")
+    locale: Literal["en"] = field(init=False, default="en")
 
     def to_dict(self) -> Mapping[str, object]:
         return {
