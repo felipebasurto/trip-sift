@@ -85,6 +85,8 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 | `flights` flag | Default | Behavior |
 |---|---|---|
 | `--max-stops` | `1` | `0` for direct flights only, `1` to allow one stop. |
+| `--adults` | `1` | Number of adults on the search. |
+| `--cabin` | `economy` | `economy`, `premium-economy`, `business`, or `first`. |
 | `--top` | `8` | Offers kept per query after ranking and deduplication. |
 | `--baggage-buffer` | `70` | EUR added to low-cost fares when ranking. `0` ranks on fare alone. |
 | `--save FILE` | off | Write the JSON report atomically. |
@@ -122,9 +124,12 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
         "origin": "MAD",
         "destination": "BCN",
         "departure_date": "2026-09-01",
-        "max_stops": 1
+        "max_stops": 1,
+        "adults": 1,
+        "cabin": "economy"
       },
       "raw_count": 24,
+      "eligible_count": 1,
       "offers": [
         {
           "airline": "Vueling",
@@ -145,7 +150,7 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 }
 ```
 
-A failed query replaces `raw_count` and `offers` with `"error": {"code": ..., "message": ...}`. Codes are `no_results`, `browser_unavailable`, and `fetch_failed`. Hotel reports follow the same envelope, with `provider`, `price_basis: "total_stay"`, and an `applied` block recording the Booking filters that were actually used.
+A failed query replaces `raw_count`, `eligible_count`, and `offers` with `"error": {"code": ..., "message": ...}`. Codes are `no_results`, `browser_unavailable`, and `fetch_failed`. Hotel reports follow the same envelope, with `provider`, `price_basis: "total_stay"`, and an `applied` block recording the Booking filters that were actually used.
 
 ## Python API
 
@@ -200,7 +205,7 @@ Both run a live search with the same Chromium and the same pacing as the CLI.
 
 ## Limitations
 
-- Flights are one adult, one-way, economy, and `--max-stops` is `0` or `1`. There is no flag to shorten the delays or to parallelize requests.
+- Flights are one-way only, and `--max-stops` is `0` or `1`. Adults and cabin are configurable (`--adults`, `--cabin`). There is no flag to shorten the delays or to parallelize requests.
 - The flight scrape runs in English (`hl=en`) for stable rendered evidence; prices are still EUR. Hotels scrape in Spanish against our own parser.
 - Flight ranking adds a flat estimate for known low-cost carriers, not a fare quote. The low-cost list is partial, so an airline missing from it is not evidence of a bag-inclusive fare. Confirm the checked bag on Google Flights before booking.
 - Hotel cancellation and property type are reported as observed evidence, and `unknown` means the card did not say. `--entire-home` therefore cannot remove every non-home. Confirm the final total and the cancellation terms on Booking.com before booking.

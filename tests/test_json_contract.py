@@ -15,8 +15,15 @@ from trip_sift.models import (
 )
 
 REPORT_KEYS = {"schema_version", "searched_at", "currency", "locale", "queries"}
-QUERY_KEYS = {"origin", "destination", "departure_date", "max_stops"}
-SUCCESS_KEYS = {"status", "query", "raw_count", "offers"}
+QUERY_KEYS = {
+    "origin",
+    "destination",
+    "departure_date",
+    "max_stops",
+    "adults",
+    "cabin",
+}
+SUCCESS_KEYS = {"status", "query", "raw_count", "eligible_count", "offers"}
 FAILURE_KEYS = {"status", "query", "error"}
 OFFER_KEYS = {
     "airline",
@@ -52,7 +59,7 @@ def _report() -> SearchReport:
     return SearchReport(
         searched_at=datetime(2026, 8, 11, 10, 32, 0, tzinfo=timezone.utc),
         queries=(
-            QuerySuccess(query=query, raw_count=24, offers=(offer,)),
+            QuerySuccess(query=query, raw_count=24, eligible_count=1, offers=(offer,)),
             QueryFailure(
                 query=query,
                 error=SearchError(

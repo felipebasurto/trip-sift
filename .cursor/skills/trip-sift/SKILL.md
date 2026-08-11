@@ -5,7 +5,7 @@ description: Search Google Flights and Booking.com locally for trip planning. Us
 
 # trip-sift
 
-Local flight and hotel search. Prices in EUR. Flights are one adult, one-way, economy; hotel prices are totals for the full stay.
+Local flight and hotel search. Prices in EUR. Flights are one-way; defaults are one adult and economy. Hotel prices are totals for the full stay.
 
 ## Invocation
 
@@ -20,7 +20,7 @@ After `uv sync` and `uv run playwright install chromium`, the entry point is ava
 ## Commands
 
 ```bash
-uv run trip-sift flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--top N] [--baggage-buffer EUR] [--save FILE]
+uv run trip-sift flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--save FILE]
 uv run trip-sift hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--save FILE]
 ```
 
@@ -62,6 +62,27 @@ Each route and each comma-separated date is a separate sequential query. `--max-
 ## Timing
 
 Between queries the CLI sleeps about 4.5 to 6 seconds on purpose. N queries cost roughly N scrapes plus (N-1) delays. Never shorten delays or parallelize Google Flights or Booking.com requests.
+
+## Destination triage (before date buffers)
+
+Do **not** open with a full outbound×return date matrix across many cities. Each `ORIGIN-DEST:date` is a sequential scrape (~5–6 s between queries). Prefer:
+
+1. **Shortlist from vibe + expected band** (table below). Drop cities that are clearly out of budget before scraping.
+2. **Fixed natural dates first** — one outbound + one return per destination (e.g. Fri→Tue for a Monday holiday bridge). `--top 3`, `--save` if comparing.
+3. **±1 day only on 1–3 finalists** the user picks or that already look competitive. Never expand dates on the whole longlist in one batch.
+4. On partial failure, retry only the failed legs.
+
+### Rough MAD direct RT bands (cabin only)
+
+Order-of-magnitude for short MAD weekend/puente trips, **direct** ida+vuelta, `--baggage-buffer 0`. Not live quotes; holidays and lead time move them a lot. Recheck with a fixed-date scrape before recommending.
+
+| Band | Typical RT (EUR) | Destinations (examples) | When to bother with ±1 |
+|------|------------------|-------------------------|------------------------|
+| Cheap short-haul | ~50–100 | OPO, LIS, other nearby Iberia/Ryanair hops | Often worth it: small EUR swings, more useful daylight |
+| Mid classic | ~150–250 | FCO/ROM, BUD, RAK | Only if fixed dates are already near budget or user wants that vibe |
+| Expensive for a puente | ~280+ | PRG, PMO, NAP (and similar on holiday peaks) | Skip ±1 unless the user insists; fixed dates usually already expensive |
+
+Use bands to **exclude or deprioritize**, not to invent prices in the reply. After a live scrape, report real numbers; if a city lands far above its band, say so and do not expand dates unless asked.
 
 ## `--save`
 

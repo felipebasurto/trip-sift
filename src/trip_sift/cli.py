@@ -46,7 +46,14 @@ def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
         raise ValueError("--top must be a positive integer")
     if args.baggage_buffer < 0:
         raise ValueError("--baggage-buffer must not be negative")
-    queries = parse_route_specs(args.routes, max_stops=args.max_stops)
+    if args.adults < 1:
+        raise ValueError("--adults must be at least 1")
+    queries = parse_route_specs(
+        args.routes,
+        max_stops=args.max_stops,
+        adults=args.adults,
+        cabin=args.cabin,
+    )
     today = date.today()
     for query in queries:
         if query.departure_date < today:
@@ -122,6 +129,11 @@ def _print_report(report) -> None:
                     f"{_format_stops(offer.stops_count):<7} {times:<18} "
                     f"{_format_airline(offer.airline)}{_format_ranking_note(offer)}"
                 )
+            print(
+                f"  Raw: {result.raw_count}; "
+                f"eligible: {result.eligible_count}; "
+                f"shown: {len(result.offers)}"
+            )
         elif isinstance(result, QueryFailure):
             print(f"  ERROR: {result.error.message}")
     if any_success:
@@ -278,6 +290,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=1,
         choices=[0, 1],
         help="Maximum stops (default 1)",
+    )
+    flights.add_argument(
+        "--adults",
+        type=int,
+        default=1,
+        help="Number of adults (default 1)",
+    )
+    flights.add_argument(
+        "--cabin",
+        default="economy",
+        choices=["economy", "premium-economy", "business", "first"],
+        help="Cabin class (default economy)",
     )
     flights.add_argument(
         "--top",

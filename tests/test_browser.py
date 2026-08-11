@@ -111,7 +111,11 @@ class ChromiumSessionTests(unittest.TestCase):
             state_path.write_text('{"cookies": []}', encoding="utf-8")
             session = ChromiumSession(
                 state_dir,
-                BrowserSessionConfig(state_filename="pw_state_google.json", locale="en-US"),
+                BrowserSessionConfig(
+                    state_filename="pw_state_google.json",
+                    locale="en-US",
+                    html_lang="en",
+                ),
             )
 
             with (
@@ -151,6 +155,7 @@ class ChromiumSessionTests(unittest.TestCase):
                 BrowserSessionConfig(
                     state_filename="pw_state_booking.json",
                     locale="es-ES",
+                    html_lang="es",
                     viewport={"width": 1280, "height": 900},
                     user_agent="TestAgent/1.0",
                 ),
@@ -187,7 +192,11 @@ class ChromiumSessionTests(unittest.TestCase):
             context = FakeContext(storage_error=RuntimeError("write failed"))
             session = ChromiumSession(
                 state_dir,
-                BrowserSessionConfig(state_filename="pw_state_google.json", locale="en-US"),
+                BrowserSessionConfig(
+                    state_filename="pw_state_google.json",
+                    locale="en-US",
+                    html_lang="en",
+                ),
             )
             session._context = context
 
@@ -205,7 +214,11 @@ class ChromiumSessionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             session = ChromiumSession(
                 Path(tmp),
-                BrowserSessionConfig(state_filename="pw_state_google.json", locale="en-US"),
+                BrowserSessionConfig(
+                    state_filename="pw_state_google.json",
+                    locale="en-US",
+                    html_lang="en",
+                ),
             )
             session._context = context
             session._browser = browser

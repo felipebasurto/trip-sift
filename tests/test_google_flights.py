@@ -81,6 +81,33 @@ class QueryEncodingTests(unittest.TestCase):
         self.assertEqual(parsed["curr"], ["EUR"])
         self.assertEqual(parsed["tfu"], ["EgQIABABIgA"])
 
+    def test_adults_and_cabin_change_the_encoded_query(self) -> None:
+        default = build_search_params(
+            FlightQuery("MAD", "BCN", date(2026, 12, 4), max_stops=0)
+        )
+        custom = build_search_params(
+            FlightQuery(
+                "MAD",
+                "BCN",
+                date(2026, 12, 4),
+                max_stops=0,
+                adults=2,
+                cabin="business",
+            )
+        )
+        self.assertNotEqual(custom["tfs"], default["tfs"])
+        self.assertEqual(custom["hl"], "en")
+        self.assertEqual(custom["curr"], "EUR")
+
+    def test_html_lang_and_currency_args_reach_url_params(self) -> None:
+        params = build_search_params(
+            FlightQuery("MAD", "BCN", date(2026, 12, 4), max_stops=0),
+            html_lang="en",
+            currency="USD",
+        )
+        self.assertEqual(params["hl"], "en")
+        self.assertEqual(params["curr"], "USD")
+
 
 class OwnedCardParserTests(unittest.TestCase):
     def test_nonstop_survives_direct_only_search(self) -> None:

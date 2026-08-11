@@ -25,7 +25,7 @@
 ### Flights
 
 - The flight scrape locale is `hl=en` with `locale="en-US"` for stable rendered evidence and the existing JSON `locale: "en"` contract. Currency comes from `curr=EUR`, independently of `hl`. Card parsing is owned by trip-sift and keeps raw stop/price labels. This does not apply to hotels, which use `lang=es` against our own parser.
-- `max_stops` is 0 or 1 per query; filtering follows each query's value.
+- `max_stops` is 0 or 1 per query; filtering follows each query's value. Flights stay one-way; `adults` and `cabin` are query fields (CLI `--adults` / `--cabin`).
 - The baggage buffer is an input (`--baggage-buffer`, default 70 EUR), not a constant. A non-zero buffer implies `needs_bag_verify`. Whatever the ranking adds must be visible in the printed row. Callers must verify baggage on Google Flights before booking.
 - The low-cost carrier list is partial. Absence from it is not evidence that a fare includes a bag.
 
@@ -52,6 +52,10 @@ uv run ruff check src tests
 
 `tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output.
 
+## Trip-planning search strategy
+
+When helping pick destinations (not a single named route/date), follow `.cursor/skills/trip-sift/SKILL.md` → **Destination triage**: shortlist by vibe and rough MAD price band, scrape fixed natural dates first, and only then expand ±1 day on 1–3 finalists. Do not brute-force full date matrices across a long destination list in one run.
+
 ## Private-data boundary
 
-This tree is the public export. Do not add scraped caches, CSVs, personal trip scripts or routes, reservation data, browser session files, or paths from a private repository.
+This tree is the public export. Do not add scraped caches, CSVs, personal trip scripts or routes, reservation data, browser session files, or paths from a private repository. Heuristic price *bands* in the trip-sift skill are allowed; live scrapes and personal trip JSON are not.

@@ -43,6 +43,14 @@ class ClassifyFailureTests(unittest.TestCase):
         self.assertEqual(error.code, SearchErrorCode.FETCH_FAILED)
         self.assertEqual(error.message, "RuntimeError: temporary upstream failure")
 
+    def test_fetch_failed_message_is_capped(self) -> None:
+        blob = "x" * 20_000
+        error = classify_failure(RuntimeError(blob), provider="Google Flights")
+        self.assertEqual(error.code, SearchErrorCode.FETCH_FAILED)
+        self.assertLessEqual(len(error.message), 500)
+        self.assertTrue(error.message.endswith("..."))
+        self.assertTrue(error.message.startswith("RuntimeError: "))
+
     def test_non_retriable_codes_cover_no_results_and_browser(self) -> None:
         self.assertEqual(
             NON_RETRIABLE_CODES,

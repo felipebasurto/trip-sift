@@ -28,8 +28,14 @@ class ModelTests(unittest.TestCase):
         q = FlightQuery("mad", "bcn", date(2026, 9, 1), max_stops=1)
         self.assertEqual(q.origin, "MAD")
         self.assertEqual(q.destination, "BCN")
+        self.assertEqual(q.adults, 1)
+        self.assertEqual(q.cabin, "economy")
         with self.assertRaises(ValueError):
             FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=2)
+        with self.assertRaises(ValueError):
+            FlightQuery("MAD", "BCN", date(2026, 9, 1), adults=0)
+        with self.assertRaises(ValueError):
+            FlightQuery("MAD", "BCN", date(2026, 9, 1), cabin="space")  # type: ignore[arg-type]
 
     def test_flight_offer_requires_positive_price(self) -> None:
         with self.assertRaises(ValueError):
@@ -62,13 +68,18 @@ class ModelTests(unittest.TestCase):
             baggage_buffer_eur=0,
             needs_bag_verify=False,
         )
-        success = QuerySuccess(query=query, raw_count=1, offers=(offer,))
+        success = QuerySuccess(query=query, raw_count=1, eligible_count=1, offers=(offer,))
         failure = QueryFailure(
             query=query,
             error=SearchError(SearchErrorCode.FETCH_FAILED, "failed"),
         )
         self.assertEqual(success.status, "ok")
         self.assertEqual(failure.status, "error")
+        self.assertEqual(success.eligible_count, 1)
+        with self.assertRaises(ValueError):
+            QuerySuccess(query=query, raw_count=0, eligible_count=1, offers=(offer,))
+        with self.assertRaises(ValueError):
+            QuerySuccess(query=query, raw_count=1, eligible_count=0, offers=(offer,))
 
     def test_search_report_json(self) -> None:
         query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=0)

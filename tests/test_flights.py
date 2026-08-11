@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import date, datetime
 from random import Random
+from types import SimpleNamespace
 from typing import Sequence
 from unittest.mock import patch
 
@@ -57,6 +58,7 @@ class FakeSource:
         self.fetch_calls = 0
         self.reset_calls = 0
         self.closed = False
+        self.config = SimpleNamespace(html_lang="en", currency="EUR")
 
     def fetch(self, query: FlightQuery) -> Sequence[RawFlightCard]:
         self.fetch_calls += 1
@@ -243,6 +245,30 @@ class FlightsOrchestrationTests(unittest.TestCase):
         unknown = card(stops="Unknown", price="90 €", departure="14:00", arrival="15:00")
         self.assertIsNone(_normalize_offer(unknown, max_stops=0))
         self.assertIsNotNone(_normalize_offer(unknown, max_stops=1))
+
+    def test_eligible_count_is_zero_when_all_offers_fail_normalize(self) -> None:
+        query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=0)
+        source = FakeSource(
+            {
+                ("MAD", "BCN", "2026-09-01", 0): (
+                    card(stops="Unknown", price="90 €", departure="14:00", arrival="15:00"),
+                    card(stops="1 stop", price="80 €", departure="10:00", arrival="13:00"),
+                ),
+            }
+        )
+        report = _run_search(
+            (query,),
+            top=8,
+            source=source,
+            sleep=lambda _: None,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10),
+        )
+        outcome = report.queries[0]
+        self.assertIsInstance(outcome, QuerySuccess)
+        self.assertEqual(outcome.raw_count, 2)
+        self.assertEqual(outcome.eligible_count, 0)
+        self.assertEqual(outcome.offers, ())
 
     def test_rank_dedupe_and_baggage(self) -> None:
         offers = (

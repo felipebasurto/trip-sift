@@ -5,6 +5,8 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Literal, Mapping, Optional, Tuple, Union
 
+FlightCabin = Literal["economy", "premium-economy", "business", "first"]
+
 
 @dataclass(frozen=True)
 class FlightQuery:
@@ -12,6 +14,8 @@ class FlightQuery:
     destination: str
     departure_date: date
     max_stops: int = 1
+    adults: int = 1
+    cabin: FlightCabin = "economy"
 
     def __post_init__(self) -> None:
         origin = self.origin.strip().upper()
@@ -22,6 +26,10 @@ class FlightQuery:
             raise ValueError(f"invalid destination IATA code: {self.destination!r}")
         if self.max_stops not in (0, 1):
             raise ValueError("max_stops must be 0 or 1")
+        if self.adults < 1:
+            raise ValueError("adults must be at least 1")
+        if self.cabin not in ("economy", "premium-economy", "business", "first"):
+            raise ValueError(f"invalid cabin: {self.cabin!r}")
         object.__setattr__(self, "origin", origin)
         object.__setattr__(self, "destination", destination)
 
@@ -31,6 +39,8 @@ class FlightQuery:
             "destination": self.destination,
             "departure_date": self.departure_date.isoformat(),
             "max_stops": self.max_stops,
+            "adults": self.adults,
+            "cabin": self.cabin,
         }
 
 
@@ -91,14 +101,22 @@ class SearchError:
 class QuerySuccess:
     query: FlightQuery
     raw_count: int
+    eligible_count: int
     offers: Tuple[FlightOffer, ...]
     status: Literal["ok"] = field(init=False, default="ok")
+
+    def __post_init__(self) -> None:
+        if self.raw_count < self.eligible_count:
+            raise ValueError("raw_count must be >= eligible_count")
+        if self.eligible_count < len(self.offers):
+            raise ValueError("eligible_count must be >= number of offers")
 
     def to_dict(self) -> Mapping[str, object]:
         return {
             "status": self.status,
             "query": self.query.to_dict(),
             "raw_count": self.raw_count,
+            "eligible_count": self.eligible_count,
             "offers": [offer.to_dict() for offer in self.offers],
         }
 
@@ -124,9 +142,9 @@ QueryResult = Union[QuerySuccess, QueryFailure]
 class SearchReport:
     searched_at: datetime
     queries: Tuple[QueryResult, ...]
+    locale: str = "en"
+    currency: str = "EUR"
     schema_version: int = field(init=False, default=1)
-    currency: Literal["EUR"] = field(init=False, default="EUR")
-    locale: Literal["en"] = field(init=False, default="en")
 
     def __post_init__(self) -> None:
         if self.searched_at.tzinfo is not None:
@@ -306,10 +324,10 @@ HotelQueryResult = Union[HotelQuerySuccess, HotelQueryFailure]
 class HotelSearchReport:
     searched_at: datetime
     queries: Tuple[HotelQueryResult, ...]
+    locale: str = "es"
+    currency: str = "EUR"
     schema_version: int = field(init=False, default=1)
     provider: Literal["booking.com"] = field(init=False, default="booking.com")
-    currency: Literal["EUR"] = field(init=False, default="EUR")
-    locale: Literal["es"] = field(init=False, default="es")
     price_basis: Literal["total_stay"] = field(init=False, default="total_stay")
 
     def __post_init__(self) -> None:

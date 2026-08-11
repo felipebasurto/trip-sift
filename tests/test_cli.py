@@ -68,9 +68,17 @@ def _offer(
 
 
 def _report(*offers: FlightOffer) -> SearchReport:
+    shown = offers or (_offer(),)
     return SearchReport(
         searched_at=SEARCHED_AT,
-        queries=(QuerySuccess(query=QUERY, raw_count=3, offers=offers or (_offer(),)),),
+        queries=(
+            QuerySuccess(
+                query=QUERY,
+                raw_count=3,
+                eligible_count=len(shown),
+                offers=shown,
+            ),
+        ),
     )
 
 
@@ -142,7 +150,9 @@ class CliTests(unittest.TestCase):
         report = SearchReport(
             searched_at=SEARCHED_AT,
             queries=(
-                QuerySuccess(query=QUERY, raw_count=3, offers=(_offer(),)),
+                QuerySuccess(
+                    query=QUERY, raw_count=3, eligible_count=1, offers=(_offer(),)
+                ),
                 QueryFailure(
                     query=QUERY,
                     error=SearchError(SearchErrorCode.FETCH_FAILED, "boom"),
@@ -158,6 +168,22 @@ class CliTests(unittest.TestCase):
             with patch("trip_sift.cli._print_report"):
                 main(["flights", ROUTE, "--baggage-buffer", "0"])
         self.assertEqual(search.call_args.kwargs["buffer_eur"], 0)
+
+    def test_adults_and_cabin_reach_parsed_queries(self) -> None:
+        with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
+            with patch("trip_sift.cli._print_report"):
+                code = main(
+                    ["flights", ROUTE, "--adults", "2", "--cabin", "business"]
+                )
+        self.assertEqual(code, 0)
+        queries = search.call_args.args[0]
+        self.assertEqual(queries[0].adults, 2)
+        self.assertEqual(queries[0].cabin, "business")
+
+    def test_zero_adults_is_rejected_before_searching(self) -> None:
+        with patch("trip_sift.cli.search_flights") as search:
+            self.assertEqual(main(["flights", ROUTE, "--adults", "0"]), 1)
+            search.assert_not_called()
 
     def test_negative_baggage_buffer_is_rejected_before_searching(self) -> None:
         with patch("trip_sift.cli.search_flights") as search:
@@ -233,6 +259,22 @@ class ReportRenderingTests(unittest.TestCase):
         output = _rendered(_report(_offer(airline="A" * 60)))
         self.assertIn("…", output)
         self.assertNotIn("A" * 41, output)
+
+    def test_flight_success_prints_eligible_counts(self) -> None:
+        output = _rendered(_report(_offer()))
+        self.assertIn("Raw: 3; eligible: 1; shown: 1", output)
+
+    def test_empty_eligible_still_prints_counts(self) -> None:
+        report = SearchReport(
+            searched_at=SEARCHED_AT,
+            queries=(
+                QuerySuccess(query=QUERY, raw_count=5, eligible_count=0, offers=()),
+            ),
+        )
+        output = _rendered(report)
+        self.assertIn("(no eligible offers)", output)
+        self.assertIn("Raw: 5; eligible: 0; shown: 0", output)
+        self.assertIn("Verify checked baggage", output)
 
     def test_flights_help_preserves_examples_epilog(self) -> None:
         buffer = io.StringIO()

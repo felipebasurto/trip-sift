@@ -14,6 +14,7 @@ from trip_sift.google_flights import (
     RawFlightCard,
 )
 from trip_sift.models import (
+    FlightCabin,
     FlightOffer,
     FlightQuery,
     QueryFailure,
@@ -86,6 +87,8 @@ def parse_route_specs(
     specs: Sequence[str],
     *,
     max_stops: int,
+    adults: int = 1,
+    cabin: FlightCabin = "economy",
 ) -> Tuple[FlightQuery, ...]:
     if max_stops not in (0, 1):
         raise ValueError("max_stops must be 0 or 1")
@@ -114,6 +117,8 @@ def parse_route_specs(
                     destination=destination,
                     departure_date=departure_date,
                     max_stops=max_stops,
+                    adults=adults,
+                    cabin=cabin,
                 )
             )
         if not any(d.strip() for d in dates_part.split(",")):
@@ -226,6 +231,8 @@ def _run_search(
     now: Callable[[], datetime],
     buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
     progress: Optional[Callable[[str], None]] = None,
+    locale: str = "en",
+    currency: str = "EUR",
 ) -> SearchReport:
     report_progress = progress or (lambda _: None)
     results: list[QueryResult] = []
@@ -239,7 +246,7 @@ def _run_search(
         for attempt in range(MAX_ATTEMPTS):
             try:
                 cards = source.fetch(query)
-                offers = [
+                eligible = [
                     offer
                     for raw in cards
                     if (offer := _normalize_offer(raw, query.max_stops, buffer_eur=buffer_eur))
@@ -248,7 +255,8 @@ def _run_search(
                 outcome = QuerySuccess(
                     query=query,
                     raw_count=len(cards),
-                    offers=_rank_offers(offers, top=top),
+                    eligible_count=len(eligible),
+                    offers=_rank_offers(eligible, top=top),
                 )
                 break
             except Exception as exc:
@@ -271,7 +279,12 @@ def _run_search(
         results.append(outcome)
         if index + 1 < len(queries):
             sleep(inter_query_delay_seconds(random_gen))
-    return SearchReport(searched_at=now(), queries=tuple(results))
+    return SearchReport(
+        searched_at=now(),
+        queries=tuple(results),
+        locale=locale,
+        currency=currency,
+    )
 
 
 def search_flights(
@@ -298,6 +311,8 @@ def search_flights(
             now=lambda: datetime.now(timezone.utc),
             buffer_eur=buffer_eur,
             progress=progress,
+            locale=source.config.html_lang,
+            currency=source.config.currency,
         )
     finally:
         source.close()

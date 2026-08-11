@@ -71,7 +71,12 @@ class GoogleFlightsMarkupError(RuntimeError):
     """Neither a results grid nor a recognized empty state was found."""
 
 
-def build_search_params(query: FlightQuery) -> dict[str, str]:
+def build_search_params(
+    query: FlightQuery,
+    *,
+    html_lang: str = SCRAPE_LANGUAGE,
+    currency: str = SCRAPE_CURRENCY,
+) -> dict[str, str]:
     encoded = create_query(
         flights=[
             ProviderLeg(
@@ -80,11 +85,11 @@ def build_search_params(query: FlightQuery) -> dict[str, str]:
                 to_airport=query.destination,
             )
         ],
-        seat="economy",
+        seat=query.cabin,
         trip="one-way",
-        passengers=Passengers(adults=1),
-        language=SCRAPE_LANGUAGE,
-        currency=SCRAPE_CURRENCY,
+        passengers=Passengers(adults=query.adults),
+        language=html_lang,
+        currency=currency,
         max_stops=query.max_stops,
     ).params()
     return {
@@ -95,8 +100,14 @@ def build_search_params(query: FlightQuery) -> dict[str, str]:
     }
 
 
-def build_search_url(query: FlightQuery) -> str:
-    return f"{SEARCH_URL}?{urlencode(build_search_params(query))}"
+def build_search_url(
+    query: FlightQuery,
+    *,
+    html_lang: str = SCRAPE_LANGUAGE,
+    currency: str = SCRAPE_CURRENCY,
+) -> str:
+    params = build_search_params(query, html_lang=html_lang, currency=currency)
+    return f"{SEARCH_URL}?{urlencode(params)}"
 
 
 def _text_or_none(node) -> Optional[str]:
@@ -153,14 +164,34 @@ def parse_flight_cards(html: str) -> tuple[RawFlightCard, ...]:
 
 
 class GoogleFlightsSource:
-    def __init__(self, state_dir: Path, session: Optional[ChromiumSession] = None) -> None:
-        self._session = session or ChromiumSession(
-            state_dir,
-            BrowserSessionConfig(state_filename=STATE_FILENAME, locale="en-US"),
+    def __init__(
+        self,
+        state_dir: Path,
+        session: Optional[ChromiumSession] = None,
+        config: Optional[BrowserSessionConfig] = None,
+    ) -> None:
+        self._config = config or BrowserSessionConfig(
+            state_filename=STATE_FILENAME,
+            locale="en-US",
+            html_lang=SCRAPE_LANGUAGE,
+            currency=SCRAPE_CURRENCY,
         )
+        self._session = session or ChromiumSession(state_dir, self._config)
+
+    @property
+    def config(self) -> BrowserSessionConfig:
+        return self._config
 
     def fetch(self, query: FlightQuery) -> tuple[RawFlightCard, ...]:
-        return parse_flight_cards(self._fetch_html(build_search_url(query)))
+        return parse_flight_cards(
+            self._fetch_html(
+                build_search_url(
+                    query,
+                    html_lang=self._config.html_lang,
+                    currency=self._config.currency,
+                )
+            )
+        )
 
     def reset(self) -> None:
         self._session.reset()

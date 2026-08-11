@@ -17,6 +17,16 @@ BROWSER_UNAVAILABLE_MARKERS = (
 
 NON_RETRIABLE_CODES = frozenset({SearchErrorCode.NO_RESULTS, SearchErrorCode.BROWSER_UNAVAILABLE})
 
+ERROR_MESSAGE_MAX_CHARS = 500
+
+
+def _clip_error_message(text: str, *, limit: int = ERROR_MESSAGE_MAX_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return text[:limit]
+    return text[: limit - 3] + "..."
+
 
 def classify_failure(
     exc: BaseException,
@@ -30,7 +40,7 @@ def classify_failure(
             code=SearchErrorCode.BROWSER_UNAVAILABLE,
             message=("Chromium is not available to Playwright. Run 'playwright install chromium'."),
         )
-    return SearchError(code=SearchErrorCode.FETCH_FAILED, message=text)
+    return SearchError(code=SearchErrorCode.FETCH_FAILED, message=_clip_error_message(text))
 
 
 def retry_backoff_seconds(attempt: int, random_gen) -> float:

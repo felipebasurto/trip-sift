@@ -90,7 +90,12 @@ class _HotelSource(Protocol):
     def close(self) -> None: ...
 
 
-def build_applied_filters(query: HotelQuery) -> AppliedHotelFilters:
+def build_applied_filters(
+    query: HotelQuery,
+    *,
+    html_lang: str = "es",
+    currency: str = "EUR",
+) -> AppliedHotelFilters:
     chips: list[str] = []
     if query.free_cancellation:
         chips.append("oos=1")
@@ -104,8 +109,8 @@ def build_applied_filters(query: HotelQuery) -> AppliedHotelFilters:
         "group_adults": str(query.adults),
         "no_rooms": str(query.rooms),
         "group_children": "0",
-        "selected_currency": "EUR",
-        "lang": "es",
+        "selected_currency": currency,
+        "lang": html_lang,
     }
     if chips:
         params["nflt"] = ";".join(chips)
@@ -201,6 +206,8 @@ def _run_search(
     sleep: Callable[[float], None],
     random_gen: random.Random,
     now: Callable[[], datetime],
+    html_lang: str = "es",
+    currency: str = "EUR",
 ) -> HotelSearchReport:
     if not queries:
         raise ValueError("at least one query is required")
@@ -210,7 +217,7 @@ def _run_search(
     results: list[HotelQueryResult] = []
     fetch_limit = max(top * 3, 24)
     for index, query in enumerate(queries):
-        applied = build_applied_filters(query)
+        applied = build_applied_filters(query, html_lang=html_lang, currency=currency)
         outcome: Optional[HotelQueryResult] = None
         failure: Optional[SearchError] = None
         for attempt in range(MAX_ATTEMPTS):
@@ -253,7 +260,12 @@ def _run_search(
         results.append(outcome)
         if index + 1 < len(queries):
             sleep(inter_query_delay_seconds(random_gen))
-    return HotelSearchReport(searched_at=now(), queries=tuple(results))
+    return HotelSearchReport(
+        searched_at=now(),
+        queries=tuple(results),
+        locale=html_lang,
+        currency=currency,
+    )
 
 
 def search_hotels(
@@ -274,6 +286,8 @@ def search_hotels(
             sleep=time.sleep,
             random_gen=random.Random(),
             now=lambda: datetime.now(timezone.utc),
+            html_lang=source.config.html_lang,
+            currency=source.config.currency,
         )
     finally:
         source.close()
@@ -291,16 +305,21 @@ class _BookingHotelsSource:
         self,
         state_dir: Path,
         session: Optional[ChromiumSession] = None,
+        config: Optional[BrowserSessionConfig] = None,
     ) -> None:
-        self._session = session or ChromiumSession(
-            state_dir,
-            BrowserSessionConfig(
-                state_filename=BOOKING_STATE_FILENAME,
-                locale="es-ES",
-                viewport={"width": 1280, "height": 900},
-                user_agent=DESKTOP_USER_AGENT,
-            ),
+        self._config = config or BrowserSessionConfig(
+            state_filename=BOOKING_STATE_FILENAME,
+            locale="es-ES",
+            html_lang="es",
+            currency="EUR",
+            viewport={"width": 1280, "height": 900},
+            user_agent=DESKTOP_USER_AGENT,
         )
+        self._session = session or ChromiumSession(state_dir, self._config)
+
+    @property
+    def config(self) -> BrowserSessionConfig:
+        return self._config
 
     @staticmethod
     def _dismiss_consent(page) -> None:

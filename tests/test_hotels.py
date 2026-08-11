@@ -5,6 +5,7 @@ import unittest
 from datetime import date, datetime
 from pathlib import Path
 from random import Random
+from types import SimpleNamespace
 from typing import List, Sequence, Tuple, Union
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
@@ -54,6 +55,7 @@ class FakeSource:
         self.fetch_calls: List[Tuple[HotelQuery, AppliedHotelFilters, int]] = []
         self.reset_calls = 0
         self.closed = False
+        self.config = SimpleNamespace(html_lang="es", currency="EUR")
 
     def fetch(
         self,
@@ -432,6 +434,62 @@ class PureHotelLogicTests(unittest.TestCase):
             _rank_offers((), top=0)
 
 
+class EnglishHotelEvidenceSeamTests(unittest.TestCase):
+    """English card text must survive normalize → evidence, not only parser unit tests."""
+
+    def test_english_free_cancellation_and_entire_home_survive_normalize(self) -> None:
+        normalized = _normalize_card(
+            card(
+                rating="Scored 8.7",
+                details=(
+                    "Free cancellation · Entire home · 2 bedrooms · 1 bathroom · 3 beds"
+                ),
+            )
+        )
+        assert normalized is not None
+        self.assertEqual(normalized.cancellation_evidence, CancellationEvidence.FREE)
+        self.assertEqual(
+            normalized.property_type_evidence,
+            PropertyTypeEvidence.ENTIRE_HOME,
+        )
+        self.assertEqual(
+            (normalized.bedrooms, normalized.bathrooms, normalized.beds),
+            (2, 1, 3),
+        )
+        self.assertTrue(
+            _is_eligible(normalized, query(entire_home=True, free_cancellation=True))
+        )
+
+    def test_english_non_refundable_and_private_room_are_excluded_by_filters(self) -> None:
+        normalized = _normalize_card(
+            card(details="Non-refundable · Private room · Free WiFi")
+        )
+        assert normalized is not None
+        self.assertEqual(
+            normalized.cancellation_evidence,
+            CancellationEvidence.NON_REFUNDABLE,
+        )
+        self.assertEqual(
+            normalized.property_type_evidence,
+            PropertyTypeEvidence.NOT_ENTIRE_HOME,
+        )
+        self.assertFalse(
+            _is_eligible(normalized, query(entire_home=True, free_cancellation=True))
+        )
+
+    def test_english_unknown_evidence_stays_eligible_under_strict_filters(self) -> None:
+        normalized = _normalize_card(card(details="Breakfast included · City view"))
+        assert normalized is not None
+        self.assertEqual(normalized.cancellation_evidence, CancellationEvidence.UNKNOWN)
+        self.assertEqual(
+            normalized.property_type_evidence,
+            PropertyTypeEvidence.UNKNOWN,
+        )
+        self.assertTrue(
+            _is_eligible(normalized, query(entire_home=True, free_cancellation=True))
+        )
+
+
 class HotelOrchestrationTests(unittest.TestCase):
     def test_failure_then_success_resets_once(self) -> None:
         source = FakeSource(
@@ -689,11 +747,20 @@ class BookingHotelsSourceTests(unittest.TestCase):
     def test_default_session_uses_booking_browser_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = _BookingHotelsSource(Path(tmp))
-            config = source._session._config
+            config = source.config
             self.assertEqual(config.state_filename, "pw_state_booking.json")
             self.assertEqual(config.locale, "es-ES")
+            self.assertEqual(config.html_lang, "es")
+            self.assertEqual(config.currency, "EUR")
             self.assertEqual(config.viewport, {"width": 1280, "height": 900})
             self.assertEqual(config.user_agent, DESKTOP_USER_AGENT)
+            self.assertIs(source._session._config, config)
+
+    def test_applied_filters_follow_lang_and_currency_args(self) -> None:
+        applied = build_applied_filters(query(), html_lang="en", currency="USD")
+        params = parse_qs(urlparse(applied.url).query)
+        self.assertEqual(params["lang"], ["en"])
+        self.assertEqual(params["selected_currency"], ["USD"])
 
     def test_visible_consent_button_is_clicked(self) -> None:
         button = FakeLocator(count=1, visible=True)

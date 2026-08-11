@@ -16,6 +16,8 @@ BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font"})
 class BrowserSessionConfig:
     state_filename: str
     locale: str
+    html_lang: str
+    currency: str = "EUR"
     viewport: Optional[Mapping[str, int]] = None
     user_agent: Optional[str] = None
 
