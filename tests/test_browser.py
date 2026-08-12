@@ -177,12 +177,39 @@ class ChromiumSessionTests(unittest.TestCase):
 
     def test_resource_blocking_aborts_heavy_types(self) -> None:
         self.assertEqual(BLOCKED_RESOURCE_TYPES, frozenset({"image", "media", "font"}))
-        image_route = FakeRoute("image")
-        script_route = FakeRoute("script")
-        ChromiumSession._block_heavy_resources(image_route)
-        ChromiumSession._block_heavy_resources(script_route)
-        self.assertTrue(image_route.aborted)
-        self.assertTrue(script_route.continued)
+        with tempfile.TemporaryDirectory() as tmp:
+            session = ChromiumSession(
+                Path(tmp),
+                BrowserSessionConfig(
+                    state_filename="pw_state_google.json",
+                    locale="en-US",
+                    html_lang="en",
+                ),
+            )
+            image_route = FakeRoute("image")
+            script_route = FakeRoute("script")
+            session._block_heavy_resources(image_route)
+            session._block_heavy_resources(script_route)
+            self.assertTrue(image_route.aborted)
+            self.assertTrue(script_route.continued)
+
+    def test_custom_blocked_types_can_allow_fonts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            session = ChromiumSession(
+                Path(tmp),
+                BrowserSessionConfig(
+                    state_filename="pw_state_booking.json",
+                    locale="es-ES",
+                    html_lang="es",
+                    blocked_resource_types=frozenset({"image", "media"}),
+                ),
+            )
+            font_route = FakeRoute("font")
+            image_route = FakeRoute("image")
+            session._block_heavy_resources(font_route)
+            session._block_heavy_resources(image_route)
+            self.assertTrue(font_route.continued)
+            self.assertTrue(image_route.aborted)
 
     def test_persist_state_is_atomic_and_cleans_tmp_on_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

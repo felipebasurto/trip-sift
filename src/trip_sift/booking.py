@@ -10,6 +10,7 @@ from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 from trip_sift.browser import BrowserSessionConfig, ChromiumSession
 from trip_sift.models import AppliedHotelFilters, HotelQuery
+from trip_sift.storage import write_text_atomic
 
 BOOKING_SEARCH_URL = "https://www.booking.com/searchresults.html"
 PROPERTY_CARD_SELECTOR = '[data-testid="property-card"]'
@@ -26,12 +27,24 @@ CONSENT_SELECTORS = (
     'button:has-text("Aceptar todas")',
     '[id*="accept"]',
 )
-DESKTOP_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
+DISMISS_SELECTORS = (
+    '[aria-label="Dismiss sign-in info."]',
+    '[aria-label="Cerrar información de inicio de sesión."]',
+    'button[aria-label*="Dismiss sign-in"]',
+    'button[aria-label*="Cerrar información"]',
 )
 BOOKING_STATE_FILENAME = "pw_state_booking.json"
+BOOKING_BLOCKED_RESOURCE_TYPES = frozenset({"image", "media"})
+PAGE_TIMEOUT_MS = 60_000
+RESULTS_TIMEOUT_MS = 60_000
+OVERLAY_CLICK_TIMEOUT_MS = 3_000
+OVERLAY_SETTLE_MS = 800
+FAILURE_HTML_NAME = "booking-last-failure.html"
+FAILURE_META_NAME = "booking-last-failure.txt"
+
+
+class BookingResultsTimeout(TimeoutError):
+    """Cards or empty state never appeared; likely consent, challenge, or markup drift."""
 
 
 @dataclass(frozen=True)
@@ -86,13 +99,14 @@ class BookingHotelsSource:
         session: Optional[ChromiumSession] = None,
         config: Optional[BrowserSessionConfig] = None,
     ) -> None:
+        self._state_dir = state_dir
         self._config = config or BrowserSessionConfig(
             state_filename=BOOKING_STATE_FILENAME,
             locale="es-ES",
             html_lang="es",
             currency="EUR",
             viewport={"width": 1280, "height": 900},
-            user_agent=DESKTOP_USER_AGENT,
+            blocked_resource_types=BOOKING_BLOCKED_RESOURCE_TYPES,
         )
         self._session = session or ChromiumSession(state_dir, self._config)
 
@@ -101,16 +115,35 @@ class BookingHotelsSource:
         return self._config
 
     @staticmethod
-    def _dismiss_consent(page) -> None:
-        for selector in CONSENT_SELECTORS:
+    def _click_first_visible(page, selectors: Tuple[str, ...]) -> bool:
+        for selector in selectors:
             try:
                 button = page.locator(selector).first
                 if button.count() > 0 and button.is_visible():
-                    button.click(timeout=3_000)
-                    page.wait_for_timeout(800)
-                    return
+                    button.click(timeout=OVERLAY_CLICK_TIMEOUT_MS)
+                    page.wait_for_timeout(OVERLAY_SETTLE_MS)
+                    return True
             except Exception:
                 continue
+        return False
+
+    @classmethod
+    def _dismiss_overlays(cls, page) -> None:
+        cls._click_first_visible(page, CONSENT_SELECTORS)
+        cls._click_first_visible(page, DISMISS_SELECTORS)
+
+    def _record_failure(self, page) -> None:
+        url = ""
+        html = ""
+        with contextlib.suppress(Exception):
+            url = str(getattr(page, "url", "") or "")
+        with contextlib.suppress(Exception):
+            html = page.content()
+        write_text_atomic(f"url: {url}\n", self._state_dir / FAILURE_META_NAME)
+        if html:
+            write_text_atomic(html, self._state_dir / FAILURE_HTML_NAME)
+        with contextlib.suppress(Exception):
+            page.screenshot(path=str(self._state_dir / "booking-last-failure.png"))
 
     @staticmethod
     def _clean_link(link: Optional[str]) -> Optional[str]:
@@ -180,15 +213,23 @@ class BookingHotelsSource:
             page.goto(
                 applied.url,
                 wait_until="domcontentloaded",
-                timeout=60_000,
+                timeout=PAGE_TIMEOUT_MS,
             )
-            self._dismiss_consent(page)
+            self._dismiss_overlays(page)
             result_selector = ", ".join((PROPERTY_CARD_SELECTOR,) + EMPTY_STATE_SELECTORS)
-            page.locator(result_selector).first.wait_for(timeout=20_000)
+            try:
+                page.locator(result_selector).first.wait_for(timeout=RESULTS_TIMEOUT_MS)
+            except Exception as exc:
+                self._record_failure(page)
+                message = str(exc)
+                if "timeout" in type(exc).__name__.casefold() or "timeout" in message.casefold():
+                    raise BookingResultsTimeout(message) from exc
+                raise
             provider_cards = page.query_selector_all(PROPERTY_CARD_SELECTOR)
             if not provider_cards:
                 if self._has_empty_state(page):
                     return HotelPage(cards=())
+                self._record_failure(page)
                 raise RuntimeError("Booking results page has no recognized result state")
 
             cards: list[RawHotelCard] = []
@@ -200,6 +241,7 @@ class BookingHotelsSource:
                 except Exception:
                     continue
             if not cards:
+                self._record_failure(page)
                 raise RuntimeError("Booking property cards could not be parsed")
             return HotelPage(cards=tuple(cards))
         finally:

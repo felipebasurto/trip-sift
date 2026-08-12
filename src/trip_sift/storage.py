@@ -19,10 +19,14 @@ def default_state_dir() -> Path:
 
 
 def write_json_atomic(payload: Mapping[str, object], destination: Path) -> None:
+    write_text_atomic(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        destination,
+    )
+
+
+def write_text_atomic(text: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     tmp = destination.with_suffix(destination.suffix + ".tmp")
-    tmp.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, destination)

@@ -9,11 +9,15 @@ from urllib.parse import parse_qs, urlparse
 
 import trip_sift.booking as booking_module
 from trip_sift.booking import (
+    BOOKING_BLOCKED_RESOURCE_TYPES,
     CONSENT_SELECTORS,
-    DESKTOP_USER_AGENT,
+    DISMISS_SELECTORS,
     EMPTY_STATE_SELECTORS,
+    FAILURE_HTML_NAME,
+    FAILURE_META_NAME,
     PROPERTY_CARD_SELECTOR,
     BookingHotelsSource,
+    BookingResultsTimeout,
     HotelPage,
     build_applied_filters,
 )
@@ -93,9 +97,19 @@ class FakePage:
         self.wait_error = wait_error
         self.closed = False
         self.wait_timeouts: List[int] = []
+        self.url = ""
+        self.html = "<html><body>challenge</body></html>"
+        self.screenshot_paths: List[str] = []
 
     def goto(self, url: str, *, wait_until: str, timeout: int) -> None:
-        return None
+        self.url = url
+
+    def content(self) -> str:
+        return self.html
+
+    def screenshot(self, *, path: str) -> None:
+        self.screenshot_paths.append(path)
+        Path(path).write_bytes(b"png")
 
     def locator(self, selector: str) -> FakeLocator:
         if selector in self.locators:
@@ -229,14 +243,25 @@ class BookingHotelsSourceTests(unittest.TestCase):
             self.assertEqual(config.html_lang, "es")
             self.assertEqual(config.currency, "EUR")
             self.assertEqual(config.viewport, {"width": 1280, "height": 900})
-            self.assertEqual(config.user_agent, DESKTOP_USER_AGENT)
+            self.assertIsNone(config.user_agent)
+            self.assertEqual(config.blocked_types(), BOOKING_BLOCKED_RESOURCE_TYPES)
+            self.assertNotIn("font", config.blocked_types())
             self.assertIs(source._session._config, config)
+
+    def test_genius_signin_popup_is_dismissed(self) -> None:
+        button = FakeLocator(count=1, visible=True)
+        page = FakePage(locators={DISMISS_SELECTORS[0]: button})
+
+        BookingHotelsSource._dismiss_overlays(page)
+
+        self.assertEqual(button.click_timeouts, [3_000])
+        self.assertEqual(page.wait_timeouts, [800])
 
     def test_visible_consent_button_is_clicked(self) -> None:
         button = FakeLocator(count=1, visible=True)
         page = FakePage(locators={CONSENT_SELECTORS[0]: button})
 
-        BookingHotelsSource._dismiss_consent(page)
+        BookingHotelsSource._dismiss_overlays(page)
 
         self.assertEqual(button.click_timeouts, [3_000])
         self.assertEqual(page.wait_timeouts, [800])
@@ -245,9 +270,13 @@ class BookingHotelsSourceTests(unittest.TestCase):
         page = FakePage(wait_error=RuntimeError("selector timeout"))
 
         with tempfile.TemporaryDirectory() as tmp:
-            source = self.source_for(page, Path(tmp))
-            with self.assertRaisesRegex(RuntimeError, "selector timeout"):
+            state_dir = Path(tmp)
+            source = self.source_for(page, state_dir)
+            with self.assertRaises(BookingResultsTimeout):
                 source.fetch(query(), build_applied_filters(query()), 24)
+            self.assertTrue((state_dir / FAILURE_HTML_NAME).exists())
+            meta = (state_dir / FAILURE_META_NAME).read_text(encoding="utf-8")
+            self.assertIn("url:", meta)
 
         self.assertTrue(page.closed)
 
@@ -269,6 +298,7 @@ class BookingHotelsSourceTests(unittest.TestCase):
             source = self.source_for(page, Path(tmp))
             with self.assertRaises(RuntimeError):
                 source.fetch(query(), build_applied_filters(query()), 24)
+            self.assertTrue((Path(tmp) / FAILURE_HTML_NAME).exists())
 
         self.assertTrue(page.closed)
 

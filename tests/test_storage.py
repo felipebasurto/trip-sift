@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from trip_sift.flights import write_report_atomic
 from trip_sift.models import SearchReport
-from trip_sift.storage import default_state_dir, write_json_atomic
+from trip_sift.storage import default_state_dir, write_json_atomic, write_text_atomic
 
 
 class DefaultStateDirTests(unittest.TestCase):
@@ -55,6 +55,13 @@ class WriteJsonAtomicTests(unittest.TestCase):
             self.assertEqual(data["schema_version"], 1)
             self.assertEqual(data["value"], "café")
             self.assertIn("\n", path.read_text(encoding="utf-8"))
+
+    def test_write_text_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "nested" / "dump.html"
+            write_text_atomic("<html>ok</html>", path)
+            self.assertEqual(path.read_text(encoding="utf-8"), "<html>ok</html>")
+            self.assertFalse(path.with_suffix(".html.tmp").exists())
 
     def test_replaces_existing_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
