@@ -6,12 +6,11 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 
-from fast_flights import FlightQuery as ProviderLeg
-from fast_flights import Passengers, create_query
 from selectolax.lexbor import LexborHTMLParser
 
 from trip_sift.browser import BrowserSessionConfig, ChromiumSession
 from trip_sift.models import FlightQuery
+from trip_sift.tfs import encode_tfs
 
 SEARCH_URL = "https://www.google.com/travel/flights"
 STATE_FILENAME = "pw_state_google.json"
@@ -77,26 +76,11 @@ def build_search_params(
     html_lang: str = SCRAPE_LANGUAGE,
     currency: str = SCRAPE_CURRENCY,
 ) -> dict[str, str]:
-    encoded = create_query(
-        flights=[
-            ProviderLeg(
-                date=query.departure_date.isoformat(),
-                from_airport=query.origin,
-                to_airport=query.destination,
-            )
-        ],
-        seat=query.cabin,
-        trip="one-way",
-        passengers=Passengers(adults=query.adults),
-        language=html_lang,
-        currency=currency,
-        max_stops=query.max_stops,
-    ).params()
     return {
-        "tfs": encoded["tfs"],
-        "hl": encoded["hl"],
+        "tfs": encode_tfs(query),
+        "hl": html_lang,
         "tfu": RESULT_TABS,
-        "curr": encoded["curr"],
+        "curr": currency,
     }
 
 

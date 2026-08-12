@@ -150,9 +150,7 @@ class CliTests(unittest.TestCase):
         report = SearchReport(
             searched_at=SEARCHED_AT,
             queries=(
-                QuerySuccess(
-                    query=QUERY, raw_count=3, eligible_count=1, offers=(_offer(),)
-                ),
+                QuerySuccess(query=QUERY, raw_count=3, eligible_count=1, offers=(_offer(),)),
                 QueryFailure(
                     query=QUERY,
                     error=SearchError(SearchErrorCode.FETCH_FAILED, "boom"),
@@ -172,9 +170,7 @@ class CliTests(unittest.TestCase):
     def test_adults_and_cabin_reach_parsed_queries(self) -> None:
         with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
             with patch("trip_sift.cli._print_report"):
-                code = main(
-                    ["flights", ROUTE, "--adults", "2", "--cabin", "business"]
-                )
+                code = main(["flights", ROUTE, "--adults", "2", "--cabin", "business"])
         self.assertEqual(code, 0)
         queries = search.call_args.args[0]
         self.assertEqual(queries[0].adults, 2)
@@ -267,9 +263,7 @@ class ReportRenderingTests(unittest.TestCase):
     def test_empty_eligible_still_prints_counts(self) -> None:
         report = SearchReport(
             searched_at=SEARCHED_AT,
-            queries=(
-                QuerySuccess(query=QUERY, raw_count=5, eligible_count=0, offers=()),
-            ),
+            queries=(QuerySuccess(query=QUERY, raw_count=5, eligible_count=0, offers=()),),
         )
         output = _rendered(report)
         self.assertIn("(no eligible offers)", output)

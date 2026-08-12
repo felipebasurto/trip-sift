@@ -19,7 +19,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --locked --no-dev
-      - run: uv run --no-sync python -c "import fast_flights"
       - run: uv run --no-sync python -m unittest discover -s tests -v
 
   lint:
