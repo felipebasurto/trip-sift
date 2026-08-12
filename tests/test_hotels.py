@@ -441,9 +441,7 @@ class EnglishHotelEvidenceSeamTests(unittest.TestCase):
         normalized = _normalize_card(
             card(
                 rating="Scored 8.7",
-                details=(
-                    "Free cancellation · Entire home · 2 bedrooms · 1 bathroom · 3 beds"
-                ),
+                details=("Free cancellation · Entire home · 2 bedrooms · 1 bathroom · 3 beds"),
             )
         )
         assert normalized is not None
@@ -456,14 +454,10 @@ class EnglishHotelEvidenceSeamTests(unittest.TestCase):
             (normalized.bedrooms, normalized.bathrooms, normalized.beds),
             (2, 1, 3),
         )
-        self.assertTrue(
-            _is_eligible(normalized, query(entire_home=True, free_cancellation=True))
-        )
+        self.assertTrue(_is_eligible(normalized, query(entire_home=True, free_cancellation=True)))
 
     def test_english_non_refundable_and_private_room_are_excluded_by_filters(self) -> None:
-        normalized = _normalize_card(
-            card(details="Non-refundable · Private room · Free WiFi")
-        )
+        normalized = _normalize_card(card(details="Non-refundable · Private room · Free WiFi"))
         assert normalized is not None
         self.assertEqual(
             normalized.cancellation_evidence,
@@ -473,9 +467,7 @@ class EnglishHotelEvidenceSeamTests(unittest.TestCase):
             normalized.property_type_evidence,
             PropertyTypeEvidence.NOT_ENTIRE_HOME,
         )
-        self.assertFalse(
-            _is_eligible(normalized, query(entire_home=True, free_cancellation=True))
-        )
+        self.assertFalse(_is_eligible(normalized, query(entire_home=True, free_cancellation=True)))
 
     def test_english_unknown_evidence_stays_eligible_under_strict_filters(self) -> None:
         normalized = _normalize_card(card(details="Breakfast included · City view"))
@@ -485,9 +477,7 @@ class EnglishHotelEvidenceSeamTests(unittest.TestCase):
             normalized.property_type_evidence,
             PropertyTypeEvidence.UNKNOWN,
         )
-        self.assertTrue(
-            _is_eligible(normalized, query(entire_home=True, free_cancellation=True))
-        )
+        self.assertTrue(_is_eligible(normalized, query(entire_home=True, free_cancellation=True)))
 
 
 class HotelOrchestrationTests(unittest.TestCase):
