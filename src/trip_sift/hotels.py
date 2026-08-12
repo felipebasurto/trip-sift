@@ -10,6 +10,7 @@ from typing import Callable, Optional, Protocol, Sequence, Tuple
 
 from trip_sift.booking import (
     BookingHotelsSource,
+    BookingResultsTimeout,
     HotelPage,
     RawHotelCard,
     build_applied_filters,
@@ -188,7 +189,7 @@ def _run_search(
             except Exception as exc:
                 failure = classify_failure(exc, provider="Booking.com")
                 source.reset()
-                if failure.code in NON_RETRIABLE_CODES:
+                if failure.code in NON_RETRIABLE_CODES or isinstance(exc, BookingResultsTimeout):
                     break
                 if attempt + 1 < MAX_ATTEMPTS:
                     sleep(retry_backoff_seconds(attempt, random_gen))

@@ -22,6 +22,12 @@ class BrowserSessionConfig:
     currency: str = "EUR"
     viewport: Optional[Mapping[str, int]] = None
     user_agent: Optional[str] = None
+    blocked_resource_types: Optional[frozenset[str]] = None
+
+    def blocked_types(self) -> frozenset[str]:
+        if self.blocked_resource_types is None:
+            return BLOCKED_RESOURCE_TYPES
+        return frozenset(self.blocked_resource_types)
 
 
 class ChromiumSession:
@@ -67,9 +73,8 @@ class ChromiumSession:
                 self._atexit_registered = True
         return self._context
 
-    @staticmethod
-    def _block_heavy_resources(route) -> None:
-        if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
+    def _block_heavy_resources(self, route) -> None:
+        if route.request.resource_type in self._config.blocked_types():
             route.abort()
         else:
             route.continue_()

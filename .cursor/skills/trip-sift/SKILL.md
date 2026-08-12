@@ -130,7 +130,7 @@ trip-sift does not scrape Kayak, Lastminute, or hotel official sites. After Book
 | `no_results` | Stop. Do not retry. Do not wait. |
 | `(no eligible offers)` / `(no eligible stays)` with exit 0 | Widen filters or try other dates. Do not retry the same query as a fetch failure. |
 | `browser_unavailable` | Run `uv run playwright install chromium`. |
-| `fetch_failed` / exit 2 | Wait 30-60 minutes. Retry failed queries only. |
+| `fetch_failed` / exit 2 | Wait 30-60 minutes. Retry failed queries only. For Booking, inspect `booking-last-failure.html` in the state dir before retrying. |
 | Exit 3 (partial failure) | Re-run only the failed route or date legs. Do not re-run the whole batch. |
 | Consent or markup break | Delete `pw_state_google.json` or `pw_state_booking.json` in the state dir, then retry one query. |
 
@@ -138,7 +138,7 @@ Exit codes: `0` all queries finished, `1` bad input, `2` all queries failed, `3`
 
 ## Browser state
 
-Stored outside the repo at `TRIP_SIFT_STATE_DIR` or the XDG state dir. Delete `pw_state_google.json` or `pw_state_booking.json` if that provider's consent flow breaks.
+Stored outside the repo at `TRIP_SIFT_STATE_DIR` or the XDG state dir. Delete `pw_state_google.json` or `pw_state_booking.json` if that provider's consent flow breaks. Booking dumps `booking-last-failure.html` next to the session file when cards never appear.
 
 ## Tests
 

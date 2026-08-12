@@ -10,7 +10,7 @@ from typing import List, Sequence, Tuple, Union
 from unittest.mock import patch
 
 import trip_sift.hotels as hotels_module
-from trip_sift.booking import HotelPage, RawHotelCard
+from trip_sift.booking import BookingResultsTimeout, HotelPage, RawHotelCard
 from trip_sift.hotels import (
     _is_eligible,
     _normalize_card,
@@ -380,6 +380,27 @@ class HotelOrchestrationTests(unittest.TestCase):
         assert isinstance(result, HotelQueryFailure)
         self.assertEqual(result.error.code, SearchErrorCode.FETCH_FAILED)
         self.assertEqual(result.error.message, "RuntimeError: blocked")
+
+    def test_results_timeout_is_not_retried(self) -> None:
+        source = FakeSource([BookingResultsTimeout("cards never appeared")])
+        sleeps: List[float] = []
+
+        report = _run_search(
+            (query(),),
+            top=8,
+            source=source,
+            sleep=sleeps.append,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10, 10, 0, 0),
+        )
+
+        result = report.queries[0]
+        self.assertIsInstance(result, HotelQueryFailure)
+        assert isinstance(result, HotelQueryFailure)
+        self.assertEqual(result.error.code, SearchErrorCode.FETCH_FAILED)
+        self.assertEqual(len(source.fetch_calls), 1)
+        self.assertEqual(source.reset_calls, 1)
+        self.assertEqual(sleeps, [])
 
     def test_missing_chromium_fails_immediately_without_backoff(self) -> None:
         source = FakeSource(

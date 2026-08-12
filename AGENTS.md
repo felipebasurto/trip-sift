@@ -19,12 +19,12 @@
 ## Invariants
 
 - Validate CLI input before starting Chromium. That includes rejecting departure dates in the past.
-- One lazy Chromium per process; block images, media, and fonts.
+- One lazy Chromium per process. Flights block images, media, and fonts. Booking blocks images and media only (fonts stay; they can be required to render the list). Do not spoof a stale Chrome/macOS user-agent; use Playwright's Chromium UA.
 - Fixed delays: 4.5s + up to 1.5s jitter between queries; 3 attempts with 8s exponential backoff + jitter; browser reset after each failed attempt.
 - No flags to shorten delays or parallelize requests. Progress output is allowed and goes to stderr.
-- Retry only what can succeed on a second try. `NO_RESULTS`, `BROWSER_UNAVAILABLE`, and owned Google markup drift (`GoogleFlightsMarkupError`, still reported as `fetch_failed`) fail immediately.
+- Retry only what can succeed on a second try. `NO_RESULTS`, `BROWSER_UNAVAILABLE`, owned Google markup drift (`GoogleFlightsMarkupError`, still reported as `fetch_failed`), and Booking card-wait timeouts (`BookingResultsTimeout`, still `fetch_failed`) fail immediately. Do not hammer Booking after a challenge page.
 - Every offer keeps raw text beside parsed fields (`price`/`price_eur`, `duration`/`duration_hours`, `stops`/`stops_count`).
-- JSON output only with `--save`. Browser state lives outside the checkout (`TRIP_SIFT_STATE_DIR` or XDG state dir), and is always written to a temp file and renamed.
+- JSON output only with `--save`. Browser state lives outside the checkout (`TRIP_SIFT_STATE_DIR` or XDG state dir), and is always written to a temp file and renamed. Booking fetch failures dump `booking-last-failure.html` / `.txt` there for diagnosis; do not commit those files.
 
 ### Flights
 
