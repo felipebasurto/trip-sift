@@ -1,3 +1,5 @@
+"""Google Flights URL building, consent, card parsing, and page source."""
+
 from __future__ import annotations
 
 import contextlib
@@ -17,6 +19,7 @@ STATE_FILENAME = "pw_state_google.json"
 
 SCRAPE_LANGUAGE = "en"
 SCRAPE_CURRENCY = "EUR"
+# Owned `tfu` blob that selects result tabs; not produced by encode_tfs.
 RESULT_TABS = "EgQIABABIgA"
 
 PAGE_TIMEOUT_MS = 60_000

@@ -1,3 +1,5 @@
+"""Encode a one-way Google Flights tfs query from FlightQuery."""
+
 from __future__ import annotations
 
 import base64

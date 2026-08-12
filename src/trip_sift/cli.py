@@ -1,3 +1,5 @@
+"""Argument parsing, terminal tables, and optional JSON saves."""
+
 from __future__ import annotations
 
 import argparse

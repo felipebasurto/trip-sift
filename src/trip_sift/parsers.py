@@ -1,3 +1,5 @@
+"""Pure text parsers for flight and hotel card fields."""
+
 from __future__ import annotations
 
 import re

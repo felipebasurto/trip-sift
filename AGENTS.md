@@ -1,17 +1,20 @@
 # Agent notes for trip-sift
 
-## Module map
+## Where to edit
 
-- `src/trip_sift/models.py` owns the domain types and JSON mapping.
-- `src/trip_sift/parsers.py` owns pure text parsers for flight and hotel card fields.
-- `src/trip_sift/browser.py` owns `BrowserSessionConfig` and `ChromiumSession`. Both providers compose a session.
-- `src/trip_sift/tfs.py` owns Google Flights `tfs` query encoding for the one-way `FlightQuery` surface.
-- `src/trip_sift/google_flights.py` owns Google Flights URL building, consent, card parsing, typed provider failures, and `GoogleFlightsSource`.
-- `src/trip_sift/orchestration.py` owns shared pacing, backoff, and failure classification for both providers.
-- `src/trip_sift/flights.py` owns route parsing, filtering, ranking, and the flight search loop. It is pure and offline-testable outside the browser source.
-- `src/trip_sift/hotels.py` owns Booking.com page interaction, filters, evidence checks, ranking, and the hotel search loop. Session lifecycle lives in `browser.py`.
-- `src/trip_sift/storage.py` owns the external state directory and atomic JSON writes. Anything that writes to disk goes through it, except Playwright's own `storage_state`, which writes the file itself and so is renamed into place by `ChromiumSession`.
-- `src/trip_sift/cli.py` owns argument parsing, terminal output, and optional atomic JSON saves.
+- `tfs` bytes, cabin, or adults in the Google Flights URL: `src/trip_sift/tfs.py`
+- Google CSS, consent, empty vs markup: `src/trip_sift/google_flights.py`
+- Routes, LCC buffer, or flight ranking: `src/trip_sift/flights.py`
+- Booking URL, chips, or DOM cards: `src/trip_sift/booking.py`
+- Hotel evidence filters or ranking: `src/trip_sift/hotels.py`
+- Delays or retry classification: `src/trip_sift/orchestration.py`
+- Chromium session: `src/trip_sift/browser.py`
+- `--save` or the state directory: `src/trip_sift/storage.py`
+- Flags or printed tables: `src/trip_sift/cli.py`
+- Domain types or JSON keys: `src/trip_sift/models.py`
+- Raw card text to numbers/enums: `src/trip_sift/parsers.py`
+
+`google_flights.py` owns URL building, consent, card parsing, typed provider failures, and `GoogleFlightsSource`. `booking.py` owns Booking.com URL/chips, consent, card extract, and `BookingHotelsSource`. Session lifecycle lives in `browser.py`. `flights.py` and `hotels.py` are the search loops: pure and offline-testable outside the browser source.
 
 ## Invariants
 
@@ -49,7 +52,7 @@ uv run ruff check src tests
 
 `pip install -e .` still works, but `uv` is the reproducible path for this tree. Tests are offline. They must not launch Chromium or use the network. CI runs the suite on Python 3.10 through 3.14.
 
-`tests/test_google_flights.py` is the important one for flights. It pins owned TFS encoding and drives synthetic markup through the owned card parser. Test the owned boundary (`RawFlightCard`, typed empty/markup failures), not upstream HTML rewriting.
+`tests/test_google_flights.py` pins owned TFS encoding and drives synthetic markup through the owned card parser. Test the owned boundary (`RawFlightCard`, typed empty/markup failures), not upstream HTML rewriting. `tests/test_booking.py` is the Booking page seam (`build_applied_filters`, cards, empty vs markup). `tests/test_hotels.py` is eligibility, ranking, and the search loop.
 
 `tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output.
 
