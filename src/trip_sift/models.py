@@ -178,6 +178,13 @@ class PropertyTypeEvidence(str, Enum):
     UNKNOWN = "unknown"
 
 
+class LodgingKind(str, Enum):
+    ENTIRE_HOME = "entire_home"
+    PRIVATE_ROOM = "private_room"
+    HOTEL = "hotel"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True)
 class HotelQuery:
     location: str
@@ -244,6 +251,7 @@ class HotelOffer:
     details: str
     cancellation_evidence: CancellationEvidence
     property_type_evidence: PropertyTypeEvidence
+    lodging_kind: LodgingKind
     bedrooms: Optional[int]
     bathrooms: Optional[int]
     beds: Optional[int]
@@ -270,6 +278,7 @@ class HotelOffer:
             "details": self.details,
             "cancellation_evidence": self.cancellation_evidence.value,
             "property_type_evidence": self.property_type_evidence.value,
+            "lodging_kind": self.lodging_kind.value,
             "bedrooms": self.bedrooms,
             "bathrooms": self.bathrooms,
             "beds": self.beds,

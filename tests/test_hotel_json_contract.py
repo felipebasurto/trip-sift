@@ -12,6 +12,7 @@ from trip_sift.models import (
     HotelQueryFailure,
     HotelQuerySuccess,
     HotelSearchReport,
+    LodgingKind,
     PropertyTypeEvidence,
     SearchError,
     SearchErrorCode,
@@ -50,6 +51,7 @@ OFFER_KEYS = {
     "details",
     "cancellation_evidence",
     "property_type_evidence",
+    "lodging_kind",
     "bedrooms",
     "bathrooms",
     "beds",
@@ -69,6 +71,7 @@ def _offer() -> HotelOffer:
         details="Cancelación gratis. Apartamento entero.",
         cancellation_evidence=CancellationEvidence.FREE,
         property_type_evidence=PropertyTypeEvidence.ENTIRE_HOME,
+        lodging_kind=LodgingKind.ENTIRE_HOME,
         bedrooms=1,
         bathrooms=1,
         beds=2,
@@ -143,6 +146,7 @@ class HotelJsonContractTests(unittest.TestCase):
         offer = self.data["queries"][0]["offers"][0]
         self.assertEqual(offer["cancellation_evidence"], "free")
         self.assertEqual(offer["property_type_evidence"], "entire_home")
+        self.assertEqual(offer["lodging_kind"], "entire_home")
 
     def test_error_codes_serialise_as_their_string_values(self) -> None:
         self.assertEqual(self.data["queries"][1]["error"]["code"], "fetch_failed")

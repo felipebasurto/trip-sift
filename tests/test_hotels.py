@@ -27,6 +27,7 @@ from trip_sift.models import (
     HotelQueryFailure,
     HotelQuerySuccess,
     HotelSearchReport,
+    LodgingKind,
     PropertyTypeEvidence,
     SearchErrorCode,
 )
@@ -112,7 +113,14 @@ def offer(
     rating_score: float | None = 8.7,
     cancellation: CancellationEvidence = CancellationEvidence.FREE,
     property_type: PropertyTypeEvidence = PropertyTypeEvidence.ENTIRE_HOME,
+    lodging_kind: LodgingKind | None = None,
 ) -> HotelOffer:
+    if lodging_kind is None:
+        lodging_kind = (
+            LodgingKind.ENTIRE_HOME
+            if property_type is PropertyTypeEvidence.ENTIRE_HOME
+            else LodgingKind.UNKNOWN
+        )
     return HotelOffer(
         title=title,
         address=address,
@@ -123,6 +131,7 @@ def offer(
         details="details",
         cancellation_evidence=cancellation,
         property_type_evidence=property_type,
+        lodging_kind=lodging_kind,
         bedrooms=None,
         bathrooms=None,
         beds=None,
@@ -159,6 +168,7 @@ class PureHotelLogicTests(unittest.TestCase):
             normalized.property_type_evidence,
             PropertyTypeEvidence.ENTIRE_HOME,
         )
+        self.assertEqual(normalized.lodging_kind, LodgingKind.ENTIRE_HOME)
         self.assertEqual(
             (normalized.bedrooms, normalized.bathrooms, normalized.beds),
             (2, 1, 3),
@@ -269,6 +279,7 @@ class EnglishHotelEvidenceSeamTests(unittest.TestCase):
             normalized.property_type_evidence,
             PropertyTypeEvidence.ENTIRE_HOME,
         )
+        self.assertEqual(normalized.lodging_kind, LodgingKind.ENTIRE_HOME)
         self.assertEqual(
             (normalized.bedrooms, normalized.bathrooms, normalized.beds),
             (2, 1, 3),
@@ -286,6 +297,7 @@ class EnglishHotelEvidenceSeamTests(unittest.TestCase):
             normalized.property_type_evidence,
             PropertyTypeEvidence.NOT_ENTIRE_HOME,
         )
+        self.assertEqual(normalized.lodging_kind, LodgingKind.PRIVATE_ROOM)
         self.assertFalse(_is_eligible(normalized, query(entire_home=True, free_cancellation=True)))
 
     def test_english_unknown_evidence_stays_eligible_under_strict_filters(self) -> None:
@@ -296,6 +308,7 @@ class EnglishHotelEvidenceSeamTests(unittest.TestCase):
             normalized.property_type_evidence,
             PropertyTypeEvidence.UNKNOWN,
         )
+        self.assertEqual(normalized.lodging_kind, LodgingKind.UNKNOWN)
         self.assertTrue(_is_eligible(normalized, query(entire_home=True, free_cancellation=True)))
 
 

@@ -11,7 +11,7 @@ from typing import Optional
 from unittest.mock import patch
 
 import trip_sift
-from trip_sift.cli import _print_report, main
+from trip_sift.cli import _join_cancellation_rows, _print_report, main
 from trip_sift.hotels import write_hotel_report_atomic
 from trip_sift.models import (
     AppliedHotelFilters,
@@ -23,6 +23,7 @@ from trip_sift.models import (
     HotelQueryFailure,
     HotelQuerySuccess,
     HotelSearchReport,
+    LodgingKind,
     PropertyTypeEvidence,
     QueryFailure,
     QuerySuccess,
@@ -324,6 +325,7 @@ def _sample_hotel_offer(*, total_price: str = "420 €") -> HotelOffer:
         details="Cancelación gratuita · Apartamento entero",
         cancellation_evidence=CancellationEvidence.FREE,
         property_type_evidence=PropertyTypeEvidence.ENTIRE_HOME,
+        lodging_kind=LodgingKind.ENTIRE_HOME,
         bedrooms=2,
         bathrooms=1,
         beds=2,
@@ -406,6 +408,199 @@ class HotelCliTests(unittest.TestCase):
                     ),
                 )
 
+    def test_compare_cancellation_builds_two_queries(self) -> None:
+        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()) as search:
+            with patch("trip_sift.cli._print_hotel_report"):
+                code = main(
+                    [
+                        "hotels",
+                        "Prague",
+                        "2026-12-04",
+                        "2026-12-07",
+                        "--compare-cancellation",
+                    ]
+                )
+                self.assertEqual(code, 0)
+                queries = search.call_args[0][0]
+                self.assertEqual(len(queries), 2)
+                self.assertTrue(queries[0].free_cancellation)
+                self.assertFalse(queries[1].free_cancellation)
+                self.assertEqual(queries[0].location, queries[1].location)
+                self.assertEqual(queries[0].check_in, queries[1].check_in)
+
+    def test_join_cancellation_rows_matches_by_normalized_identity(self) -> None:
+        free = _sample_hotel_offer()
+        open_match = HotelOffer(
+            title="  Old Town Apartment ",
+            address="Prague 1,   Czech Republic",
+            total_price="380 €",
+            total_price_eur=380.0,
+            rating="8.9",
+            rating_score=8.9,
+            details="No reembolsable",
+            cancellation_evidence=CancellationEvidence.NON_REFUNDABLE,
+            property_type_evidence=PropertyTypeEvidence.ENTIRE_HOME,
+            lodging_kind=LodgingKind.ENTIRE_HOME,
+            bedrooms=2,
+            bathrooms=1,
+            beds=2,
+            link=None,
+        )
+        open_only = HotelOffer(
+            title="Other Stay",
+            address="Prague 2",
+            total_price="200 €",
+            total_price_eur=200.0,
+            rating=None,
+            rating_score=None,
+            details="",
+            cancellation_evidence=CancellationEvidence.UNKNOWN,
+            property_type_evidence=PropertyTypeEvidence.UNKNOWN,
+            lodging_kind=LodgingKind.UNKNOWN,
+            bedrooms=None,
+            bathrooms=None,
+            beds=None,
+            link=None,
+        )
+        rows = _join_cancellation_rows((free,), (open_match, open_only))
+        self.assertEqual(len(rows), 2)
+        first = rows[0]
+        self.assertEqual(first[0].title, "Other Stay")
+        self.assertIsNone(first[1])
+        self.assertIsNotNone(first[2])
+        matched = rows[1]
+        self.assertIsNotNone(matched[1])
+        self.assertIsNotNone(matched[2])
+        assert matched[2] is not None
+        self.assertEqual(matched[2].total_price_eur, 380.0)
+
+    def test_compare_output_prints_join_when_both_succeed(self) -> None:
+        free_query = HotelQuery("Prague", date(2026, 12, 4), date(2026, 12, 7))
+        open_query = HotelQuery(
+            "Prague",
+            date(2026, 12, 4),
+            date(2026, 12, 7),
+            free_cancellation=False,
+        )
+        applied_free = AppliedHotelFilters(chips=("oos=1",), url="https://example.test")
+        applied_open = AppliedHotelFilters(chips=(), url="https://example.test")
+        free_offer = _sample_hotel_offer()
+        open_offer = HotelOffer(
+            title="Old Town Apartment",
+            address="Prague 1, Czech Republic",
+            total_price="380 €",
+            total_price_eur=380.0,
+            rating="8.9",
+            rating_score=8.9,
+            details="No reembolsable",
+            cancellation_evidence=CancellationEvidence.NON_REFUNDABLE,
+            property_type_evidence=PropertyTypeEvidence.ENTIRE_HOME,
+            lodging_kind=LodgingKind.ENTIRE_HOME,
+            bedrooms=2,
+            bathrooms=1,
+            beds=2,
+            link=None,
+        )
+        report = HotelSearchReport(
+            searched_at=datetime(2026, 8, 10, 9, 0, 0),
+            queries=(
+                HotelQuerySuccess(
+                    query=free_query,
+                    applied=applied_free,
+                    raw_count=1,
+                    eligible_count=1,
+                    offers=(free_offer,),
+                ),
+                HotelQuerySuccess(
+                    query=open_query,
+                    applied=applied_open,
+                    raw_count=1,
+                    eligible_count=1,
+                    offers=(open_offer,),
+                ),
+            ),
+        )
+        with patch("trip_sift.cli.search_hotels", return_value=report):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = main(
+                    [
+                        "hotels",
+                        "Prague",
+                        "2026-12-04",
+                        "2026-12-07",
+                        "--compare-cancellation",
+                    ]
+                )
+            self.assertEqual(code, 0)
+            output = buffer.getvalue().casefold()
+            self.assertIn("cancellation compare", output)
+            self.assertIn("free cancel 420 €", output)
+            self.assertIn("no free cancel 380 €", output)
+            self.assertIn("delta 40 €", output)
+            self.assertIn("lodging: entire home", output)
+
+    def test_compare_output_skips_join_when_one_query_fails(self) -> None:
+        free_query = HotelQuery("Prague", date(2026, 12, 4), date(2026, 12, 7))
+        open_query = HotelQuery(
+            "Prague",
+            date(2026, 12, 4),
+            date(2026, 12, 7),
+            free_cancellation=False,
+        )
+        applied = AppliedHotelFilters(chips=("oos=1",), url="https://example.test")
+        report = HotelSearchReport(
+            searched_at=datetime(2026, 8, 10, 9, 0, 0),
+            queries=(
+                HotelQuerySuccess(
+                    query=free_query,
+                    applied=applied,
+                    raw_count=1,
+                    eligible_count=1,
+                    offers=(_sample_hotel_offer(),),
+                ),
+                HotelQueryFailure(
+                    query=open_query,
+                    applied=AppliedHotelFilters(chips=(), url="https://example.test"),
+                    error=SearchError(
+                        SearchErrorCode.FETCH_FAILED,
+                        "Booking.com hotel search failed after 3 attempts.",
+                    ),
+                ),
+            ),
+        )
+        with patch("trip_sift.cli.search_hotels", return_value=report):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = main(
+                    [
+                        "hotels",
+                        "Prague",
+                        "2026-12-04",
+                        "2026-12-07",
+                        "--compare-cancellation",
+                    ]
+                )
+            self.assertEqual(code, 3)
+            output = buffer.getvalue().casefold()
+            self.assertNotIn("cancellation compare", output)
+            self.assertIn("error:", output)
+
+    def test_compare_cancellation_rejects_allow_non_refundable(self) -> None:
+        with patch("trip_sift.cli.search_hotels") as search:
+            code = main(
+                [
+                    "hotels",
+                    "Prague",
+                    "2026-12-04",
+                    "2026-12-07",
+                    "--compare-cancellation",
+                    "--allow-non-refundable",
+                ]
+            )
+            self.assertEqual(code, 1)
+            search.assert_not_called()
+
     def test_allow_non_refundable_flips_cancellation_only(self) -> None:
         with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()) as search:
             with patch("trip_sift.cli._print_hotel_report"):
@@ -450,6 +645,7 @@ class HotelCliTests(unittest.TestCase):
         self.assertNotIn("prefer entire", help_text)
         self.assertIn("entire home", help_text)
         self.assertIn("unknown", help_text)
+        self.assertIn("compare-cancellation", help_text)
 
     def test_default_filter_gloss_and_booking_chips(self) -> None:
         report = _sample_hotel_report(offers=(_sample_hotel_offer(),))
@@ -518,6 +714,8 @@ class HotelCliTests(unittest.TestCase):
             self.assertIn("Old Town Apartment", output)
             self.assertIn("Prague 1, Czech Republic", output)
             self.assertIn("cancellation: free", output.casefold())
+            self.assertIn("lodging: entire home", output.casefold())
+            self.assertIn("2 bedrooms, 1 bathroom, 2 beds", output.casefold())
             self.assertIn("raw cards: 5", output.casefold())
             self.assertIn("eligible: 3", output.casefold())
             self.assertIn("shown: 1", output.casefold())
@@ -560,7 +758,7 @@ class HotelCliTests(unittest.TestCase):
                 )
             output = buffer.getvalue().casefold()
             self.assertIn("entire homes/apartments required", output)
-            self.assertIn("property type", output)
+            self.assertIn("lodging: entire home", output)
             self.assertIn("booking chips:", output)
 
     def test_empty_success_output(self) -> None:
