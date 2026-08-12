@@ -17,6 +17,8 @@ from trip_sift.models import FlightQuery
 
 GOLDEN_TFS_DIRECT = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
 GOLDEN_TFS_ONE_STOP = "GhwSCjIwMjYtMTItMDQoAWoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
+GOLDEN_TFS_TWO_ADULTS = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgIBAUgBmAEC"
+GOLDEN_TFS_BUSINESS = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAOYAQI="
 GOLDEN_URL_DIRECT = (
     "https://www.google.com/travel/flights?"
     "tfs=GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAGYAQI%3D"
@@ -81,23 +83,27 @@ class QueryEncodingTests(unittest.TestCase):
         self.assertEqual(parsed["curr"], ["EUR"])
         self.assertEqual(parsed["tfu"], ["EgQIABABIgA"])
 
-    def test_adults_and_cabin_change_the_encoded_query(self) -> None:
-        default = build_search_params(
-            FlightQuery("MAD", "BCN", date(2026, 12, 4), max_stops=0)
+    def test_two_adults_query_matches_the_golden_tfs(self) -> None:
+        params = build_search_params(
+            FlightQuery("MAD", "BCN", date(2026, 12, 4), max_stops=0, adults=2)
         )
-        custom = build_search_params(
+        self.assertEqual(params["tfs"], GOLDEN_TFS_TWO_ADULTS)
+        self.assertEqual(params["hl"], "en")
+        self.assertEqual(params["curr"], "EUR")
+
+    def test_business_cabin_query_matches_the_golden_tfs(self) -> None:
+        params = build_search_params(
             FlightQuery(
                 "MAD",
                 "BCN",
                 date(2026, 12, 4),
                 max_stops=0,
-                adults=2,
                 cabin="business",
             )
         )
-        self.assertNotEqual(custom["tfs"], default["tfs"])
-        self.assertEqual(custom["hl"], "en")
-        self.assertEqual(custom["curr"], "EUR")
+        self.assertEqual(params["tfs"], GOLDEN_TFS_BUSINESS)
+        self.assertEqual(params["hl"], "en")
+        self.assertEqual(params["curr"], "EUR")
 
     def test_html_lang_and_currency_args_reach_url_params(self) -> None:
         params = build_search_params(

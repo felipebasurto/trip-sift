@@ -5,7 +5,8 @@
 - `src/trip_sift/models.py` owns the domain types and JSON mapping.
 - `src/trip_sift/parsers.py` owns pure text parsers for flight and hotel card fields.
 - `src/trip_sift/browser.py` owns `BrowserSessionConfig` and `ChromiumSession`. Both providers compose a session.
-- `src/trip_sift/google_flights.py` owns Google Flights URL building, consent, card parsing, typed provider failures, and `GoogleFlightsSource`. `fast-flights` is used only to encode the `tfs` query.
+- `src/trip_sift/tfs.py` owns Google Flights `tfs` query encoding for the one-way `FlightQuery` surface.
+- `src/trip_sift/google_flights.py` owns Google Flights URL building, consent, card parsing, typed provider failures, and `GoogleFlightsSource`.
 - `src/trip_sift/orchestration.py` owns shared pacing, backoff, and failure classification for both providers.
 - `src/trip_sift/flights.py` owns route parsing, filtering, ranking, and the flight search loop. It is pure and offline-testable outside the browser source.
 - `src/trip_sift/hotels.py` owns Booking.com page interaction, filters, evidence checks, ranking, and the hotel search loop. Session lifecycle lives in `browser.py`.
@@ -48,7 +49,7 @@ uv run ruff check src tests
 
 `pip install -e .` still works, but `uv` is the reproducible path for this tree. Tests are offline. They must not launch Chromium or use the network. CI runs the suite on Python 3.10 through 3.14.
 
-`tests/test_google_flights.py` is the important one for flights. It pins v3 TFS encoding and drives synthetic markup through the owned card parser. Test the owned boundary (`RawFlightCard`, typed empty/markup failures), not upstream HTML rewriting.
+`tests/test_google_flights.py` is the important one for flights. It pins owned TFS encoding and drives synthetic markup through the owned card parser. Test the owned boundary (`RawFlightCard`, typed empty/markup failures), not upstream HTML rewriting.
 
 `tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output.
 

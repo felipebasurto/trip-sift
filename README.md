@@ -7,7 +7,7 @@
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-52636B">
 </p>
 
-Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. `trip-sift` drives a local Chromium over Google Flights and Booking.com, and hands back typed offers that keep the scraped text next to every parsed number. Google Flights query encoding uses [fast-flights](https://pypi.org/project/fast-flights/); card parsing is owned by trip-sift. It is built for scripts and agents that need structured prices, not for browsing.
+Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. `trip-sift` drives a local Chromium over Google Flights and Booking.com, and hands back typed offers that keep the scraped text next to every parsed number. Query encoding and card parsing are owned by trip-sift. It is built for scripts and agents that need structured prices, not for browsing.
 
 This is an unofficial project with no affiliation to Google or Booking.com. Either provider can change markup at any time, which may break parsing. Review the [Google Terms of Service](https://policies.google.com/terms), [Booking.com terms](https://www.booking.com/content/terms.html), and your own obligations before use.
 
