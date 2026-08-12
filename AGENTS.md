@@ -40,6 +40,7 @@
 - `--compare-cancellation` runs two sequential Booking scrapes (free cancellation on, then off) and joins stays by title+address. Do not parallelize. If one query fails, print both results and skip the join.
 - `lodging_kind` is observed card evidence (`entire_home` / `private_room` / `hotel` / `unknown`). Do not guess hotel from the title. Do not claim cancellation, lodging kind, or unit counts when unknown.
 - Callers must verify the final total and cancellation terms on Booking.com before booking.
+- Other OTAs are not scrapers in this tree. After Booking, for 1–3 finalists, the trip-sift skill says to use the user's browser harness (Google → official site / other aggregators) as an unverified second opinion. Do not invent those prices from snippets or write them into `--save` JSON.
 
 ## Tests
 
