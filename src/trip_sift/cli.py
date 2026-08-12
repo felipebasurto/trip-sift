@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Optional, Sequence, Tuple
 
 from trip_sift.flights import (
     DEFAULT_BAGGAGE_BUFFER_EUR,
+    FlightSort,
     parse_route_specs,
     search_flights,
     write_report_atomic,
@@ -18,6 +20,7 @@ from trip_sift.hotels import search_hotels, write_hotel_report_atomic
 from trip_sift.models import (
     AppliedHotelFilters,
     CancellationEvidence,
+    FlightOffer,
     FlightQuery,
     HotelOffer,
     HotelQuery,
@@ -31,8 +34,9 @@ from trip_sift.models import (
 FLIGHTS_EXAMPLES = """\
 Examples:
   trip-sift flights MAD-BCN:2026-09-01
+  trip-sift flights MAD-OPO:2026-10-09:2026-10-12
   trip-sift flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
-  trip-sift flights MAD-BCN:2026-09-01,2026-09-02 --top 5 --save results/search.json
+  trip-sift flights MAD-BCN:2026-09-01,2026-09-02 --top 5 --sort fare --save results/search.json
 """
 
 HOTELS_EXAMPLES = """\
@@ -78,11 +82,30 @@ def _format_airline(airline: Optional[str]) -> str:
     return text if len(text) <= 40 else text[:39] + "…"
 
 
-def _format_ranking_note(offer) -> str:
+_CLOCK_ON_DATE = re.compile(r"\s+on\s+\S.*$", re.IGNORECASE)
+
+
+def _format_clock(text: Optional[str]) -> str:
+    if not text:
+        return "?"
+    cleaned = _CLOCK_ON_DATE.sub("", text.replace("\xa0", " ")).strip()
+    return cleaned or text.strip()
+
+
+def _ranked_total(offer: FlightOffer) -> float:
+    return offer.price_eur + offer.baggage_buffer_eur
+
+
+def _sort_value(offer: FlightOffer, sort: FlightSort) -> float:
+    return offer.price_eur if sort == "fare" else _ranked_total(offer)
+
+
+def _format_ranking_columns(offer: FlightOffer) -> str:
+    fare = f"{offer.price_eur:>7.0f} €"
     if offer.baggage_buffer_eur:
-        total = offer.price_eur + offer.baggage_buffer_eur
-        return f"  (+{offer.baggage_buffer_eur} bag = {total:.0f} € ranked)"
-    return "  [baggage?]" if offer.needs_bag_verify else ""
+        return f"{fare}  {_ranked_total(offer):>7.0f} € ranked"
+    extra = "  [baggage?]" if offer.needs_bag_verify else ""
+    return f"{fare}{extra}"
 
 
 def _parse_iso_date(value: str, label: str) -> date:
@@ -120,7 +143,36 @@ def _validate_hotel_args(args: argparse.Namespace) -> Tuple[HotelQuery, ...]:
     return _build_hotel_queries(args)
 
 
-def _print_report(report) -> None:
+def _print_best_pairs(report, sort: FlightSort) -> None:
+    results = report.queries
+    index = 0
+    while index + 1 < len(results):
+        outbound, inbound = results[index], results[index + 1]
+        if not (
+            isinstance(outbound, QuerySuccess)
+            and isinstance(inbound, QuerySuccess)
+            and outbound.query.origin == inbound.query.destination
+            and outbound.query.destination == inbound.query.origin
+            and outbound.offers
+            and inbound.offers
+        ):
+            index += 1
+            continue
+        out_offer = min(outbound.offers, key=lambda offer: _sort_value(offer, sort))
+        back_offer = min(inbound.offers, key=lambda offer: _sort_value(offer, sort))
+        out_value = _sort_value(out_offer, sort)
+        back_value = _sort_value(back_offer, sort)
+        unit = "ranked" if sort == "ranked" else "fare"
+        print(
+            f"\nBest pair ({unit}): "
+            f"{outbound.query.origin}->{outbound.query.destination} {out_value:.0f} € {unit} + "
+            f"{inbound.query.origin}->{inbound.query.destination} {back_value:.0f} € {unit} = "
+            f"{out_value + back_value:.0f} €"
+        )
+        index += 2
+
+
+def _print_report(report, *, sort: FlightSort = "ranked") -> None:
     any_success = False
     for result in report.queries:
         query = result.query
@@ -134,11 +186,11 @@ def _print_report(report) -> None:
             if not result.offers:
                 print("  (no eligible offers)")
             for offer in result.offers:
-                times = f"{offer.departure or '?'} -> {offer.arrival or '?'}"
+                times = f"{_format_clock(offer.departure)} -> {_format_clock(offer.arrival)}"
                 print(
-                    f"  {offer.price_eur:>7.0f} €  {offer.duration or '?':<12} "
+                    f"  {_format_ranking_columns(offer)}  {offer.duration or '?':<12} "
                     f"{_format_stops(offer.stops_count):<7} {times:<18} "
-                    f"{_format_airline(offer.airline)}{_format_ranking_note(offer)}"
+                    f"{_format_airline(offer.airline)}"
                 )
             print(
                 f"  Raw: {result.raw_count}; "
@@ -147,6 +199,7 @@ def _print_report(report) -> None:
             )
         elif isinstance(result, QueryFailure):
             print(f"  ERROR: {result.error.message}")
+    _print_best_pairs(report, sort)
     if any_success:
         print("\nVerify checked baggage on Google Flights before booking.")
 
@@ -172,11 +225,18 @@ def _print_hotel_filters(query: HotelQuery, applied: AppliedHotelFilters) -> Non
     print(f"  Booking chips: {chips}")
 
 
-def _format_cancellation_evidence(evidence: CancellationEvidence) -> str:
+def _format_cancellation_evidence(
+    evidence: CancellationEvidence,
+    *,
+    query: HotelQuery,
+    applied: AppliedHotelFilters,
+) -> str:
     if evidence is CancellationEvidence.FREE:
         return "Cancellation: free"
     if evidence is CancellationEvidence.NON_REFUNDABLE:
         return "Cancellation: non-refundable"
+    if query.free_cancellation and "oos=1" in applied.chips:
+        return "Cancellation: filter applied; card silent"
     return "Cancellation: unknown"
 
 
@@ -201,8 +261,18 @@ def _format_unit_hints(offer: HotelOffer) -> Optional[str]:
     return ", ".join(parts) if parts else None
 
 
-def _print_hotel_offer_details(offer: HotelOffer) -> None:
-    print(f"    {_format_cancellation_evidence(offer.cancellation_evidence)}")
+def _print_hotel_offer_details(
+    offer: HotelOffer,
+    *,
+    query: HotelQuery,
+    applied: AppliedHotelFilters,
+) -> None:
+    cancellation = _format_cancellation_evidence(
+        offer.cancellation_evidence,
+        query=query,
+        applied=applied,
+    )
+    print(f"    {cancellation}")
     print(f"    {_format_lodging_kind(offer.lodging_kind)}")
     units = _format_unit_hints(offer)
     if units:
@@ -264,7 +334,9 @@ def _print_cancellation_compare(
             diff = free_offer.total_price_eur - open_offer.total_price_eur
             delta = f"  delta {diff:.0f} €"
         print(f"  {sample.title}  free cancel {free_label}  no free cancel {open_label}{delta}")
-        _print_hotel_offer_details(sample)
+        detail_query = free_result.query if free_offer is not None else open_result.query
+        detail_applied = free_result.applied if free_offer is not None else open_result.applied
+        _print_hotel_offer_details(sample, query=detail_query, applied=detail_applied)
 
 
 def _print_hotel_report(report) -> None:
@@ -294,10 +366,10 @@ def _print_hotel_report(report) -> None:
             if not result.offers:
                 print("  (no eligible stays)")
             for offer in result.offers:
-                rating = offer.rating or "-"
+                rating = f"{offer.rating_score:.1f}" if offer.rating_score is not None else "-"
                 address = f"  {offer.address}" if offer.address else ""
                 print(f"  {offer.total_price} total stay  rating {rating}  {offer.title}{address}")
-                _print_hotel_offer_details(offer)
+                _print_hotel_offer_details(offer, query=query, applied=result.applied)
             print(
                 f"  Raw cards: {result.raw_count}; "
                 f"eligible: {result.eligible_count}; "
@@ -333,8 +405,9 @@ def _run_flights(args: argparse.Namespace) -> int:
         top=args.top,
         buffer_eur=args.baggage_buffer,
         progress=lambda line: print(line, file=sys.stderr),
+        sort=args.sort,
     )
-    _print_report(report)
+    _print_report(report, sort=args.sort)
 
     if args.save:
         destination = Path(args.save)
@@ -351,7 +424,11 @@ def _run_hotels(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    report = search_hotels(queries, top=args.top)
+    report = search_hotels(
+        queries,
+        top=args.top,
+        progress=lambda line: print(line, file=sys.stderr),
+    )
     _print_hotel_report(report)
 
     if args.save:
@@ -379,7 +456,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     flights.add_argument(
         "routes",
         nargs="+",
-        help="ORIGIN-DESTINATION:DATE[,DATE...] (IATA codes)",
+        help="ORIGIN-DESTINATION:DATE[,DATE...] or ORIGIN-DESTINATION:OUT:BACK (IATA codes)",
     )
     flights.add_argument(
         "--max-stops",
@@ -415,6 +492,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"EUR added to low-cost fares when ranking (default {DEFAULT_BAGGAGE_BUFFER_EUR}, "
             "0 to rank on fare alone)"
         ),
+    )
+    flights.add_argument(
+        "--sort",
+        default="ranked",
+        choices=["ranked", "fare"],
+        help="Order and select --top by ranked total (default) or fare",
     )
     flights.add_argument(
         "--save",

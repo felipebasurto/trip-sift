@@ -20,11 +20,11 @@ After `uv sync` and `uv run playwright install chromium`, the entry point is ava
 ## Commands
 
 ```bash
-uv run trip-sift flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--save FILE]
+uv run trip-sift flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare}] [--save FILE]
 uv run trip-sift hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
 ```
 
-Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one route. Pass a return leg as a second route, not as a round trip.
+Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one route. `MAD-OPO:2026-10-09:2026-10-12` is sugar for outbound + return as two one-way queries. You can still pass a return leg as a second route.
 
 ## Smoke
 
@@ -100,7 +100,7 @@ Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hote
 ### Flights
 
 - Keep the flight scrape locale on English (`hl=en`, `locale=en-US`) for stable rendered evidence and the JSON `locale: "en"` contract. Hotels stay on Spanish.
-- Ranking adds 70 EUR to known low-cost fares by default. Report the ranked total, not just the fare. Use `--baggage-buffer 0` for hand luggage only.
+- Ranking adds 70 EUR to known low-cost fares by default. Default `--sort ranked` orders by that total; `--sort fare` orders by cabin fare. Report the ranked total when a buffer was added. Use `--baggage-buffer 0` for hand luggage only.
 - The low-cost list is partial. Never tell the user an airline includes a bag because it is absent from the list.
 - Remind the user to verify checked baggage on Google Flights before booking.
 

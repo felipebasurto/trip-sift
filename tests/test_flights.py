@@ -316,6 +316,9 @@ class FlightsOrchestrationTests(unittest.TestCase):
         self.assertEqual(len(ranked), 2)
         self.assertEqual(ranked[0].airline, "Legacy")
         self.assertEqual(ranked[1].airline, "Ryanair")
+        by_fare = _rank_offers(offers, top=5, sort="fare")
+        self.assertEqual(by_fare[0].airline, "Ryanair")
+        self.assertEqual(by_fare[1].airline, "Legacy")
 
     def test_raw_normalized_pairing(self) -> None:
         raw = card(
@@ -358,6 +361,21 @@ class FlightsOrchestrationTests(unittest.TestCase):
         queries = parse_route_specs(["MAD-BCN:2026-09-01,2026-09-02"], max_stops=0)
         self.assertEqual(len(queries), 2)
         self.assertEqual(queries[0].max_stops, 0)
+
+    def test_parse_round_trip_sugar(self) -> None:
+        queries = parse_route_specs(["MAD-OPO:2026-10-09:2026-10-12"], max_stops=1)
+        legs = [
+            (query.origin, query.destination, query.departure_date.isoformat()) for query in queries
+        ]
+        self.assertEqual(legs, [("MAD", "OPO", "2026-10-09"), ("OPO", "MAD", "2026-10-12")])
+
+    def test_parse_rejects_mixed_rt_and_comma_dates(self) -> None:
+        with self.assertRaises(ValueError):
+            parse_route_specs(["MAD-OPO:2026-10-09:2026-10-12,2026-10-13"], max_stops=1)
+
+    def test_parse_rejects_return_on_or_before_outbound(self) -> None:
+        with self.assertRaises(ValueError):
+            parse_route_specs(["MAD-OPO:2026-10-12:2026-10-09"], max_stops=1)
 
     def test_search_closes_source(self) -> None:
         query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)

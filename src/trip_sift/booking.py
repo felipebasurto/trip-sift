@@ -70,6 +70,7 @@ def build_applied_filters(
         "group_children": "0",
         "selected_currency": currency,
         "lang": html_lang,
+        "order": "price",
     }
     if chips:
         params["nflt"] = ";".join(chips)

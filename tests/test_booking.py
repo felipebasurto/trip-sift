@@ -187,6 +187,7 @@ class AppliedFiltersTests(unittest.TestCase):
                 "group_children": ["0"],
                 "selected_currency": ["EUR"],
                 "lang": ["es"],
+                "order": ["price"],
                 "nflt": ["oos=1"],
             },
         )
@@ -195,7 +196,9 @@ class AppliedFiltersTests(unittest.TestCase):
         applied = build_applied_filters(query(free_cancellation=False))
 
         self.assertEqual(applied.chips, ())
-        self.assertNotIn("nflt", parse_qs(urlparse(applied.url).query))
+        params = parse_qs(urlparse(applied.url).query)
+        self.assertNotIn("nflt", params)
+        self.assertEqual(params["order"], ["price"])
 
     def test_entire_home_uses_exact_chips(self) -> None:
         applied = build_applied_filters(query(entire_home=True))

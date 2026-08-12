@@ -11,7 +11,7 @@ from typing import Optional
 from unittest.mock import patch
 
 import trip_sift
-from trip_sift.cli import _join_cancellation_rows, _print_report, main
+from trip_sift.cli import _format_clock, _join_cancellation_rows, _print_report, main
 from trip_sift.hotels import write_hotel_report_atomic
 from trip_sift.models import (
     AppliedHotelFilters,
@@ -83,10 +83,10 @@ def _report(*offers: FlightOffer) -> SearchReport:
     )
 
 
-def _rendered(report: SearchReport) -> str:
+def _rendered(report: SearchReport, *, sort: str = "ranked") -> str:
     buffer = io.StringIO()
     with redirect_stdout(buffer):
-        _print_report(report)
+        _print_report(report, sort=sort)
     return buffer.getvalue()
 
 
@@ -224,7 +224,10 @@ class ReportRenderingTests(unittest.TestCase):
         low_cost = _offer(
             airline="Ryanair", price_eur=50.0, baggage_buffer_eur=70, needs_bag_verify=True
         )
-        self.assertIn("(+70 bag = 120 € ranked)", _rendered(_report(low_cost)))
+        output = _rendered(_report(low_cost))
+        self.assertIn("50 €", output)
+        self.assertIn("120 € ranked", output)
+        self.assertNotIn("(+70 bag", output)
 
     def test_disabled_buffer_still_flags_the_carrier(self) -> None:
         low_cost = _offer(
@@ -271,6 +274,77 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("Raw: 5; eligible: 0; shown: 0", output)
         self.assertIn("Verify checked baggage", output)
 
+    def test_clock_strips_weekday_tail(self) -> None:
+        self.assertEqual(_format_clock("10:35 AM on Fri, Oct 9"), "10:35 AM")
+        self.assertEqual(_format_clock("1:10 PM on Sat, Oct 10"), "1:10 PM")
+        output = _rendered(
+            _report(
+                _offer(
+                    departure="10:35 AM on Fri, Oct 9",
+                    arrival="1:10 PM on Sat, Oct 10",
+                )
+            )
+        )
+        self.assertIn("10:35 AM -> 1:10 PM", output)
+        self.assertNotIn("on Fri", output)
+
+    def test_sort_flag_reaches_the_search(self) -> None:
+        with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
+            with patch("trip_sift.cli._print_report"):
+                main(["flights", ROUTE, "--sort", "fare"])
+        self.assertEqual(search.call_args.kwargs["sort"], "fare")
+
+    def test_rt_sugar_builds_return_leg(self) -> None:
+        with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
+            with patch("trip_sift.cli._print_report"):
+                code = main(["flights", "MAD-OPO:2026-10-09:2026-10-12"])
+        self.assertEqual(code, 0)
+        queries = search.call_args.args[0]
+        self.assertEqual(len(queries), 2)
+        self.assertEqual(queries[0].origin, "MAD")
+        self.assertEqual(queries[0].destination, "OPO")
+        self.assertEqual(queries[0].departure_date, date(2026, 10, 9))
+        self.assertEqual(queries[1].origin, "OPO")
+        self.assertEqual(queries[1].destination, "MAD")
+        self.assertEqual(queries[1].departure_date, date(2026, 10, 12))
+
+    def test_best_pair_line_uses_sort_key(self) -> None:
+        outbound = FlightQuery("MAD", "OPO", date(2026, 10, 9), max_stops=1)
+        inbound = FlightQuery("OPO", "MAD", date(2026, 10, 12), max_stops=1)
+        report = SearchReport(
+            searched_at=SEARCHED_AT,
+            queries=(
+                QuerySuccess(
+                    query=outbound,
+                    raw_count=1,
+                    eligible_count=1,
+                    offers=(
+                        _offer(
+                            airline="Ryanair",
+                            price_eur=75.0,
+                            baggage_buffer_eur=70,
+                            needs_bag_verify=True,
+                        ),
+                    ),
+                ),
+                QuerySuccess(
+                    query=inbound,
+                    raw_count=1,
+                    eligible_count=1,
+                    offers=(_offer(airline="TAP", price_eur=80.0),),
+                ),
+            ),
+        )
+        ranked = _rendered(report, sort="ranked")
+        self.assertIn("Best pair (ranked):", ranked)
+        self.assertIn("MAD->OPO 145 € ranked", ranked)
+        self.assertIn("OPO->MAD 80 € ranked", ranked)
+        self.assertIn("= 225 €", ranked)
+        fare = _rendered(report, sort="fare")
+        self.assertIn("Best pair (fare):", fare)
+        self.assertIn("MAD->OPO 75 € fare", fare)
+        self.assertIn("= 155 €", fare)
+
     def test_flights_help_preserves_examples_epilog(self) -> None:
         buffer = io.StringIO()
         with patch("sys.stdout", buffer):
@@ -279,6 +353,8 @@ class ReportRenderingTests(unittest.TestCase):
         help_text = buffer.getvalue()
         self.assertIn("Examples:", help_text)
         self.assertIn("trip-sift flights MAD-BCN", help_text)
+        self.assertIn("MAD-OPO:2026-10-09:2026-10-12", help_text)
+        self.assertIn("--sort", help_text)
 
     def test_root_help_preserves_flight_examples_and_lists_subcommands(self) -> None:
         buffer = io.StringIO()
@@ -391,7 +467,8 @@ class HotelCliTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 search.assert_called_once()
                 queries, kwargs = search.call_args
-                self.assertEqual(kwargs, {"top": 5})
+                self.assertEqual(kwargs["top"], 5)
+                self.assertTrue(callable(kwargs["progress"]))
                 self.assertEqual(len(queries[0]), 1)
                 query = queries[0][0]
                 self.assertEqual(
@@ -711,11 +788,13 @@ class HotelCliTests(unittest.TestCase):
             self.assertIn("free cancellation required", output.casefold())
             self.assertIn("booking chips: oos=1", output.casefold())
             self.assertIn("419,50 € total stay", output)
+            self.assertIn("rating 8.9", output)
             self.assertIn("Old Town Apartment", output)
             self.assertIn("Prague 1, Czech Republic", output)
             self.assertIn("cancellation: free", output.casefold())
             self.assertIn("lodging: entire home", output.casefold())
             self.assertIn("2 bedrooms, 1 bathroom, 2 beds", output.casefold())
+            self.assertNotIn("fabuloso", output.casefold())
             self.assertIn("raw cards: 5", output.casefold())
             self.assertIn("eligible: 3", output.casefold())
             self.assertIn("shown: 1", output.casefold())
@@ -760,6 +839,34 @@ class HotelCliTests(unittest.TestCase):
             self.assertIn("entire homes/apartments required", output)
             self.assertIn("lodging: entire home", output)
             self.assertIn("booking chips:", output)
+
+    def test_silent_cancellation_when_oos_filter_applied(self) -> None:
+        silent = HotelOffer(
+            title="Quiet Stay",
+            address="Prague 1",
+            total_price="200 €",
+            total_price_eur=200.0,
+            rating="8,7 Fabuloso",
+            rating_score=8.7,
+            details="Wifi",
+            cancellation_evidence=CancellationEvidence.UNKNOWN,
+            property_type_evidence=PropertyTypeEvidence.UNKNOWN,
+            lodging_kind=LodgingKind.UNKNOWN,
+            bedrooms=None,
+            bathrooms=None,
+            beds=None,
+            link=None,
+        )
+        report = _sample_hotel_report(offers=(silent,))
+        with patch("trip_sift.cli.search_hotels", return_value=report):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main(["hotels", "Prague", "2026-12-04", "2026-12-07"])
+            output = buffer.getvalue().casefold()
+            self.assertIn("rating 8.7", output)
+            self.assertNotIn("fabuloso", output)
+            self.assertIn("filter applied; card silent", output)
+            self.assertNotIn("cancellation: unknown", output)
 
     def test_empty_success_output(self) -> None:
         report = _sample_hotel_report(offers=(), raw_count=2, eligible_count=0)

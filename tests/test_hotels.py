@@ -199,6 +199,14 @@ class PureHotelLogicTests(unittest.TestCase):
         assert normalized is not None
         self.assertIsNone(normalized.rating_score)
 
+    def test_apartment_title_fills_silent_lodging_kind(self) -> None:
+        normalized = _normalize_card(card(title="Apartamento do Chiado", details="Wifi · Centro"))
+        assert normalized is not None
+        self.assertEqual(normalized.lodging_kind, LodgingKind.ENTIRE_HOME)
+        hotel = _normalize_card(card(title="Hotel Bruno", details="Wifi · Centro"))
+        assert hotel is not None
+        self.assertEqual(hotel.lodging_kind, LodgingKind.UNKNOWN)
+
     def test_invalid_prices_are_dropped(self) -> None:
         for price in ("", "consultar", "0 €", "-20 €"):
             with self.subTest(price=price):
@@ -301,7 +309,9 @@ class EnglishHotelEvidenceSeamTests(unittest.TestCase):
         self.assertFalse(_is_eligible(normalized, query(entire_home=True, free_cancellation=True)))
 
     def test_english_unknown_evidence_stays_eligible_under_strict_filters(self) -> None:
-        normalized = _normalize_card(card(details="Breakfast included · City view"))
+        normalized = _normalize_card(
+            card(title="City View Stay", details="Breakfast included · City view")
+        )
         assert normalized is not None
         self.assertEqual(normalized.cancellation_evidence, CancellationEvidence.UNKNOWN)
         self.assertEqual(
@@ -409,6 +419,26 @@ class HotelOrchestrationTests(unittest.TestCase):
         )
 
         self.assertEqual(sleeps, [expected])
+
+    def test_progress_announces_each_query(self) -> None:
+        source = FakeSource([HotelPage(cards=()), HotelPage(cards=())])
+        lines: List[str] = []
+        _run_search(
+            (query(), query(location="Porto")),
+            top=8,
+            source=source,
+            sleep=lambda _: None,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10, 10, 0, 0),
+            progress=lines.append,
+        )
+        self.assertEqual(
+            lines,
+            [
+                "[1/2] Lisboa 2026-12-04 -> 2026-12-08",
+                "[2/2] Porto 2026-12-04 -> 2026-12-08",
+            ],
+        )
 
     def test_explicit_empty_page_is_success(self) -> None:
         source = FakeSource([HotelPage(cards=())])
