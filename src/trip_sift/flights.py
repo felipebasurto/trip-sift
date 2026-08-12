@@ -7,7 +7,7 @@ import re
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional, Protocol, Sequence, Tuple
+from typing import Callable, Literal, Optional, Protocol, Sequence, Tuple
 
 from trip_sift.google_flights import (
     GoogleFlightsMarkupError,
@@ -67,6 +67,10 @@ LOW_COST_NAMES = [
 
 NO_RESULTS_MESSAGE = "Google Flights returned no flights for this route and date."
 
+FlightSort = Literal["ranked", "fare"]
+ROUTE_GRAMMAR = "ORIGIN-DESTINATION:DATE[,DATE...] or ORIGIN-DESTINATION:OUT:BACK"
+_RT_DATES = re.compile(r"^(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$")
+
 
 def classify_failure(exc: BaseException) -> SearchError:
     if isinstance(exc, NoFlightsFound):
@@ -100,12 +104,44 @@ def parse_route_specs(
             pair, dates_part = spec.split(":", 1)
             origin, destination = pair.split("-", 1)
         except ValueError as exc:
-            raise ValueError(
-                f"invalid route: {spec!r}. Expected ORIGIN-DESTINATION:DATE[,DATE...]"
-            ) from exc
+            raise ValueError(f"invalid route: {spec!r}. Expected {ROUTE_GRAMMAR}") from exc
         if not origin or not destination:
-            raise ValueError(f"invalid route: {spec!r}")
-        for date_text in dates_part.split(","):
+            raise ValueError(f"invalid route: {spec!r}. Expected {ROUTE_GRAMMAR}")
+        stripped = dates_part.strip()
+        if not stripped:
+            raise ValueError(f"invalid route: {spec!r}. Expected {ROUTE_GRAMMAR}")
+        if "," in stripped and ":" in stripped:
+            raise ValueError(
+                f"invalid route: {spec!r}. Do not mix comma-separated dates with OUT:BACK"
+            )
+        rt_match = _RT_DATES.fullmatch(stripped)
+        if rt_match:
+            outbound = date.fromisoformat(rt_match.group(1))
+            inbound = date.fromisoformat(rt_match.group(2))
+            if inbound <= outbound:
+                raise ValueError(f"return date must be after outbound in route {spec!r}")
+            queries.append(
+                FlightQuery(
+                    origin=origin,
+                    destination=destination,
+                    departure_date=outbound,
+                    max_stops=max_stops,
+                    adults=adults,
+                    cabin=cabin,
+                )
+            )
+            queries.append(
+                FlightQuery(
+                    origin=destination,
+                    destination=origin,
+                    departure_date=inbound,
+                    max_stops=max_stops,
+                    adults=adults,
+                    cabin=cabin,
+                )
+            )
+            continue
+        for date_text in stripped.split(","):
             date_text = date_text.strip()
             if not date_text:
                 continue
@@ -123,8 +159,8 @@ def parse_route_specs(
                     cabin=cabin,
                 )
             )
-        if not any(d.strip() for d in dates_part.split(",")):
-            raise ValueError(f"invalid route: {spec!r}")
+        if not any(part.strip() for part in stripped.split(",")):
+            raise ValueError(f"invalid route: {spec!r}. Expected {ROUTE_GRAMMAR}")
     if not queries:
         raise ValueError("at least one route is required")
     return tuple(queries)
@@ -195,14 +231,16 @@ def _rank_offers(
     offers: Sequence[FlightOffer],
     *,
     top: int,
+    sort: FlightSort = "ranked",
 ) -> Tuple[FlightOffer, ...]:
-    rows = sorted(
-        offers,
-        key=lambda o: (
-            _effective_cost(o),
-            o.duration_hours if o.duration_hours is not None else UNKNOWN_DURATION_SORTS_LAST,
-        ),
-    )
+    def sort_key(offer: FlightOffer) -> tuple[float, float]:
+        primary = offer.price_eur if sort == "fare" else _effective_cost(offer)
+        duration = offer.duration_hours
+        if duration is None:
+            duration = UNKNOWN_DURATION_SORTS_LAST
+        return (primary, duration)
+
+    rows = sorted(offers, key=sort_key)
     seen: set[tuple] = set()
     deduped: list[FlightOffer] = []
     for offer in rows:
@@ -235,6 +273,7 @@ def _run_search(
     progress: Optional[Callable[[str], None]] = None,
     locale: str = "en",
     currency: str = "EUR",
+    sort: FlightSort = "ranked",
 ) -> SearchReport:
     report_progress = progress or (lambda _: None)
     results: list[QueryResult] = []
@@ -258,7 +297,7 @@ def _run_search(
                     query=query,
                     raw_count=len(cards),
                     eligible_count=len(eligible),
-                    offers=_rank_offers(eligible, top=top),
+                    offers=_rank_offers(eligible, top=top, sort=sort),
                 )
                 break
             except Exception as exc:
@@ -295,6 +334,7 @@ def search_flights(
     top: int = 8,
     buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
     progress: Optional[Callable[[str], None]] = None,
+    sort: FlightSort = "ranked",
 ) -> SearchReport:
     if not queries:
         raise ValueError("at least one query is required")
@@ -302,6 +342,8 @@ def search_flights(
         raise ValueError("top must be positive")
     if buffer_eur < 0:
         raise ValueError("buffer_eur must not be negative")
+    if sort not in ("ranked", "fare"):
+        raise ValueError("sort must be 'ranked' or 'fare'")
     source = GoogleFlightsSource(default_state_dir())
     try:
         return _run_search(
@@ -315,6 +357,7 @@ def search_flights(
             progress=progress,
             locale=source.config.html_lang,
             currency=source.config.currency,
+            sort=sort,
         )
     finally:
         source.close()

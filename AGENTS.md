@@ -29,16 +29,16 @@
 ### Flights
 
 - The flight scrape locale is `hl=en` with `locale="en-US"` for stable rendered evidence and the existing JSON `locale: "en"` contract. Currency comes from `curr=EUR`, independently of `hl`. Card parsing is owned by trip-sift and keeps raw stop/price labels. This does not apply to hotels, which use `lang=es` against our own parser.
-- `max_stops` is 0 or 1 per query; filtering follows each query's value. Flights stay one-way; `adults` and `cabin` are query fields (CLI `--adults` / `--cabin`).
-- The baggage buffer is an input (`--baggage-buffer`, default 70 EUR), not a constant. A non-zero buffer implies `needs_bag_verify`. Whatever the ranking adds must be visible in the printed row. Callers must verify baggage on Google Flights before booking.
+- `max_stops` is 0 or 1 per query; filtering follows each query's value. Flights stay one-way; `adults` and `cabin` are query fields (CLI `--adults` / `--cabin`). `ORIGIN-DEST:OUT:BACK` is sugar for two one-way queries (out then return), not a round-trip `tfs`.
+- The baggage buffer is an input (`--baggage-buffer`, default 70 EUR), not a constant. A non-zero buffer implies `needs_bag_verify`. Default `--sort ranked` selects `--top` by fare+buffer; `--sort fare` uses fare. The ranked total must be visible when a buffer was added. Callers must verify baggage on Google Flights before booking.
 - The low-cost carrier list is partial. Absence from it is not evidence that a fare includes a bag.
 
 ### Hotels
 
-- Hotel prices are total-stay prices. Keep requested filters, applied Booking chips, and observed card evidence distinct.
-- Hotel searches require free cancellation by default. Only an explicit caller or CLI opt-out may include non-refundable stays.
+- Hotel prices are total-stay prices. Keep requested filters, applied Booking chips, and observed card evidence distinct. Booking search URLs include `order=price`.
+- Hotel searches require free cancellation by default. Only an explicit caller or CLI opt-out may include non-refundable stays. If `oos=1` is applied and the card does not mention cancellation, print `filter applied; card silent` — do not store `free` in JSON.
 - `--compare-cancellation` runs two sequential Booking scrapes (free cancellation on, then off) and joins stays by title+address. Do not parallelize. If one query fails, print both results and skip the join.
-- `lodging_kind` is observed card evidence (`entire_home` / `private_room` / `hotel` / `unknown`). Do not guess hotel from the title. Do not claim cancellation, lodging kind, or unit counts when unknown.
+- `lodging_kind` is observed card evidence (`entire_home` / `private_room` / `hotel` / `unknown`). If the card is silent, apartment/apartamento/casa in the title may infer `entire_home`. Do not infer `hotel` from the word hotel in the title. Do not claim cancellation, lodging kind, or unit counts when unknown.
 - Callers must verify the final total and cancellation terms on Booking.com before booking.
 - Other OTAs are not scrapers in this tree. After Booking, for 1–3 finalists, the trip-sift skill says to use the user's browser harness (Google the property; list official site, aggregators, and other hits as options, without preferring one). Unverified second opinion. Do not invent prices from snippets or write them into `--save` JSON.
 

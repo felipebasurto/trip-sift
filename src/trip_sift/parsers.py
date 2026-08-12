@@ -166,15 +166,24 @@ _HOTEL_ROOM_PATTERNS = (
 )
 
 
-def parse_lodging_kind(card_text: str | None) -> LodgingKind:
-    if not card_text:
-        return LodgingKind.UNKNOWN
-    text = card_text.replace("\xa0", " ").lower()
-    if any(re.search(pat, text) for pat in _PRIVATE_ROOM_PATTERNS):
-        return LodgingKind.PRIVATE_ROOM
-    if any(re.search(pat, text) for pat in _HOTEL_ROOM_PATTERNS):
-        return LodgingKind.HOTEL
-    if any(re.search(pat, text) for pat in _ENTIRE_HOME_PATTERNS):
+_TITLE_ENTIRE_HOME_PATTERNS = (
+    r"apartamentos?\b",
+    r"apartments?\b",
+    r"\bcasa\b",
+)
+
+
+def parse_lodging_kind(card_text: str | None, *, title: str | None = None) -> LodgingKind:
+    text = (card_text or "").replace("\xa0", " ").lower()
+    if text:
+        if any(re.search(pat, text) for pat in _PRIVATE_ROOM_PATTERNS):
+            return LodgingKind.PRIVATE_ROOM
+        if any(re.search(pat, text) for pat in _HOTEL_ROOM_PATTERNS):
+            return LodgingKind.HOTEL
+        if any(re.search(pat, text) for pat in _ENTIRE_HOME_PATTERNS):
+            return LodgingKind.ENTIRE_HOME
+    title_text = (title or "").replace("\xa0", " ").lower()
+    if title_text and any(re.search(pat, title_text) for pat in _TITLE_ENTIRE_HOME_PATTERNS):
         return LodgingKind.ENTIRE_HOME
     return LodgingKind.UNKNOWN
 

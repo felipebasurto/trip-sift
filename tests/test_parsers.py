@@ -190,6 +190,22 @@ class ParserTests(unittest.TestCase):
         for text, want in cases:
             with self.subTest(text=text):
                 self.assertEqual(parse_lodging_kind(text), want)
+        self.assertEqual(
+            parse_lodging_kind("Wifi included", title="Apartamento Vinohrady"),
+            LodgingKind.ENTIRE_HOME,
+        )
+        self.assertEqual(
+            parse_lodging_kind("Wifi included", title="Casa Azul"),
+            LodgingKind.ENTIRE_HOME,
+        )
+        self.assertEqual(
+            parse_lodging_kind("Wifi included", title="Hotel Bruno"),
+            LodgingKind.UNKNOWN,
+        )
+        self.assertEqual(
+            parse_lodging_kind("Private room", title="Apartamento Vinohrady"),
+            LodgingKind.PRIVATE_ROOM,
+        )
 
     def test_parse_unit_hints(self) -> None:
         cases = [

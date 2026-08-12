@@ -31,11 +31,11 @@ uv run trip-sift flights MAD-BCN:2026-09-01
 ```text
 === MAD -> BCN  2026-09-01 (max 1 stop(s)) ===
        88 €  1 hr 20 min  direct  09:30 -> 10:50     Iberia
-       39 €  1 hr 25 min  direct  07:15 -> 08:40     Vueling  (+70 bag = 109 € ranked)
+       39 €      109 € ranked  1 hr 25 min  direct  07:15 -> 08:40     Vueling
       131 €  3 hr 55 min  1 stop  14:05 -> 18:00     Air Europa
 ```
 
-One adult, one-way, economy. Up to eight offers per query, ordered by the ranked total in the note. Vueling is cheaper on fare, but the checked-bag buffer puts it behind Iberia at 109 € ranked. Pass `--baggage-buffer 0` to rank on fare alone. Nothing is written to disk unless you ask for it.
+One adult, one-way, economy. Up to eight offers per query, ordered by ranked total (fare plus baggage buffer). Vueling is cheaper on fare, but the buffer puts it behind Iberia at 109 € ranked. Pass `--sort fare` to order by cabin fare, or `--baggage-buffer 0` to rank on fare alone. `MAD-OPO:2026-10-09:2026-10-12` expands to outbound plus return as two one-way queries. Nothing is written to disk unless you ask for it.
 
 ## Search hotels
 
@@ -47,10 +47,10 @@ uv run trip-sift hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
 === Prague  2026-12-04 -> 2026-12-07 (3 nights, 2 adult(s), 1 room(s)) ===
   Filters: Free cancellation required; Minimum rating 8.5
   Booking chips: oos=1
-  246 € total stay  rating 8,9  Hotel Golden Key  Praga 1
+  246 € total stay  rating 8.9  Hotel Golden Key  Praga 1
     Cancellation: free
     Lodging: hotel
-  291 € total stay  rating 9,2  Vinohrady Apartment  Praga 2
+  291 € total stay  rating 9.2  Vinohrady Apartment  Praga 2
     Cancellation: free
     Lodging: entire home
     2 bedrooms, 1 bathroom, 3 beds
@@ -85,7 +85,7 @@ Each date is searched sequentially and printed as its own block. Progress goes t
 
 ## CLI reference
 
-Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IATA codes and `YYYY-MM-DD` dates. Codes are case-insensitive. Pass a return leg as a second route, not as a round trip.
+Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IATA codes and `YYYY-MM-DD` dates, or `ORIGIN-DESTINATION:OUT:BACK` for outbound plus return as two one-way searches. Codes are case-insensitive. You can still pass a return leg as a second route.
 
 | `flights` flag | Default | Behavior |
 |---|---|---|
@@ -94,6 +94,7 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 | `--cabin` | `economy` | `economy`, `premium-economy`, `business`, or `first`. |
 | `--top` | `8` | Offers kept per query after ranking and deduplication. |
 | `--baggage-buffer` | `70` | EUR added to low-cost fares when ranking. `0` ranks on fare alone. |
+| `--sort` | `ranked` | `ranked` uses fare+buffer for `--top`; `fare` uses cabin fare. |
 | `--save FILE` | off | Write the JSON report atomically. |
 
 | `hotels` flag | Default | Behavior |

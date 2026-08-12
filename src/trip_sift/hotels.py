@@ -75,7 +75,7 @@ def _normalize_card(card: RawHotelCard) -> Optional[HotelOffer]:
         details=card.details,
         cancellation_evidence=parse_cancellation_evidence(card.details),
         property_type_evidence=parse_property_type_evidence(card.details),
-        lodging_kind=parse_lodging_kind(card.details),
+        lodging_kind=parse_lodging_kind(card.details, title=card.title),
         bedrooms=hints["bedrooms"],
         bathrooms=hints["bathrooms"],
         beds=hints["beds"],
@@ -147,15 +147,21 @@ def _run_search(
     now: Callable[[], datetime],
     html_lang: str = "es",
     currency: str = "EUR",
+    progress: Optional[Callable[[str], None]] = None,
 ) -> HotelSearchReport:
     if not queries:
         raise ValueError("at least one query is required")
     if top <= 0:
         raise ValueError("top must be positive")
 
+    report_progress = progress or (lambda _: None)
     results: list[HotelQueryResult] = []
     fetch_limit = max(top * 3, 24)
     for index, query in enumerate(queries):
+        report_progress(
+            f"[{index + 1}/{len(queries)}] {query.location} "
+            f"{query.check_in.isoformat()} -> {query.check_out.isoformat()}"
+        )
         applied = build_applied_filters(query, html_lang=html_lang, currency=currency)
         outcome: Optional[HotelQueryResult] = None
         failure: Optional[SearchError] = None
@@ -196,6 +202,7 @@ def _run_search(
                     message="Booking.com hotel search failed.",
                 ),
             )
+            report_progress(f"  {outcome.error.code.value}: {outcome.error.message}")
         results.append(outcome)
         if index + 1 < len(queries):
             sleep(inter_query_delay_seconds(random_gen))
@@ -211,6 +218,7 @@ def search_hotels(
     queries: Sequence[HotelQuery],
     *,
     top: int = 8,
+    progress: Optional[Callable[[str], None]] = None,
 ) -> HotelSearchReport:
     if not queries:
         raise ValueError("at least one query is required")
@@ -227,6 +235,7 @@ def search_hotels(
             now=lambda: datetime.now(timezone.utc),
             html_lang=source.config.html_lang,
             currency=source.config.currency,
+            progress=progress,
         )
     finally:
         source.close()
