@@ -113,6 +113,16 @@ Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hote
 - Treat cancellation, `lodging_kind`, and bed/bedroom/bathroom counts as observed evidence. Do not present unknown card evidence as confirmed. Do not guess “hotel” from the property title.
 - Remind the user to verify the final total and cancellation terms on Booking.com before booking.
 
+## Second opinion in the browser
+
+trip-sift does not scrape Kayak, Lastminute, or hotel official sites. After Booking, for **1–3 finalists** (the stays you would actually book, or the ones the user names), use the user's browser harness (Cursor browser / computer-use / Playwright MCP — whatever this session has). Skip this step if there is no browser tool.
+
+1. Google the property title + city + check-in + check-out + adult count.
+2. List whatever useful options show up: official site, Kayak, Lastminute, chain site, other aggregators. Do not rank or prefer one source over another.
+3. Only quote a price if the page shows the **same dates, occupancy, and a visible total**. Snippets, ads, and “from €X” are not quotes.
+4. Report those figures as an **unverified second opinion**, with the URL. Do not merge them into `--save` JSON, do not write a scraper, and do not run this for every card in a long Booking list.
+5. If dates or cancellation terms do not match, say so. The user still confirms the total on the site they book.
+
 ## Recovery
 
 | Situation | Action |
