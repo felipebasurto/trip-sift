@@ -359,7 +359,6 @@ source = { editable = "." }
 dependencies = [
     { name = "playwright" },
     { name = "selectolax" },
-    { name = "typing-extensions" },
 ]
 
 [package.dev-dependencies]
@@ -372,7 +371,6 @@ dev = [
 requires-dist = [
     { name = "playwright", specifier = "==1.60.0" },
     { name = "selectolax", specifier = ">=0.3.25" },
-    { name = "typing-extensions", specifier = ">=4.4" },
 ]
 
 [package.metadata.requires-dev]

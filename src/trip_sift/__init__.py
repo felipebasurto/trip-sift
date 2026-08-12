@@ -1,3 +1,5 @@
+"""Local Google Flights and Booking.com search for scripts and agents."""
+
 from trip_sift.flights import search_flights
 from trip_sift.hotels import search_hotels
 from trip_sift.models import (

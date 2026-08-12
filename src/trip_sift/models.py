@@ -1,3 +1,5 @@
+"""Domain types and JSON mapping for flight and hotel reports."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

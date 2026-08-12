@@ -1,3 +1,5 @@
+"""Shared pacing, backoff, and failure classification for both providers."""
+
 from __future__ import annotations
 
 from trip_sift.models import SearchError, SearchErrorCode

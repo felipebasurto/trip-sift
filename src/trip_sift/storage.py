@@ -1,3 +1,5 @@
+"""External state directory and atomic JSON writes."""
+
 from __future__ import annotations
 
 import json

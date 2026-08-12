@@ -1,3 +1,5 @@
+"""Lazy Chromium session shared by Google Flights and Booking.com."""
+
 from __future__ import annotations
 
 import atexit

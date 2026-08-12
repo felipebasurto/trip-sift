@@ -13,7 +13,6 @@ authors = [{ name = "trip-sift contributors" }]
 dependencies = [
     "playwright==1.60.0",
     "selectolax>=0.3.25",
-    "typing-extensions>=4.4",
 ]
 
 [project.urls]
@@ -26,6 +25,9 @@ trip-sift = "trip_sift.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+trip_sift = ["py.typed"]
 
 [tool.ruff]
 line-length = 100
