@@ -19,10 +19,11 @@ from trip_sift.models import (
     AppliedHotelFilters,
     CancellationEvidence,
     FlightQuery,
+    HotelOffer,
     HotelQuery,
     HotelQueryFailure,
     HotelQuerySuccess,
-    PropertyTypeEvidence,
+    LodgingKind,
     QueryFailure,
     QuerySuccess,
 )
@@ -39,6 +40,7 @@ Examples:
   trip-sift hotels Prague 2026-12-04 2026-12-07
   trip-sift hotels "Prague, Czech Republic" 2026-12-04 2026-12-10 --top 5
   trip-sift hotels Prague 2026-12-04 2026-12-07 --entire-home --min-rating 8.5
+  trip-sift hotels Prague 2026-12-04 2026-12-07 --compare-cancellation
   trip-sift hotels Prague 2026-12-04 2026-12-07 --save results/hotels.json
 """
 
@@ -90,25 +92,32 @@ def _parse_iso_date(value: str, label: str) -> date:
         raise ValueError(f"{label} must be an ISO date (YYYY-MM-DD)") from exc
 
 
-def _build_hotel_query(args: argparse.Namespace) -> HotelQuery:
+def _build_hotel_queries(args: argparse.Namespace) -> Tuple[HotelQuery, ...]:
     check_in = _parse_iso_date(args.check_in, "check-in")
     check_out = _parse_iso_date(args.check_out, "check-out")
-    return HotelQuery(
-        location=args.location,
-        check_in=check_in,
-        check_out=check_out,
-        adults=args.adults,
-        rooms=args.rooms,
-        min_rating=args.min_rating,
-        entire_home=args.entire_home,
-        free_cancellation=not args.allow_non_refundable,
-    )
+    if args.compare_cancellation and args.allow_non_refundable:
+        raise ValueError("--compare-cancellation cannot be combined with --allow-non-refundable")
+    shared = {
+        "location": args.location,
+        "check_in": check_in,
+        "check_out": check_out,
+        "adults": args.adults,
+        "rooms": args.rooms,
+        "min_rating": args.min_rating,
+        "entire_home": args.entire_home,
+    }
+    if args.compare_cancellation:
+        return (
+            HotelQuery(**shared, free_cancellation=True),
+            HotelQuery(**shared, free_cancellation=False),
+        )
+    return (HotelQuery(**shared, free_cancellation=not args.allow_non_refundable),)
 
 
-def _validate_hotel_args(args: argparse.Namespace) -> HotelQuery:
+def _validate_hotel_args(args: argparse.Namespace) -> Tuple[HotelQuery, ...]:
     if args.top <= 0:
         raise ValueError("--top must be a positive integer")
-    return _build_hotel_query(args)
+    return _build_hotel_queries(args)
 
 
 def _print_report(report) -> None:
@@ -171,17 +180,105 @@ def _format_cancellation_evidence(evidence: CancellationEvidence) -> str:
     return "Cancellation: unknown"
 
 
-def _format_property_type_evidence(evidence: PropertyTypeEvidence) -> str:
-    if evidence is PropertyTypeEvidence.ENTIRE_HOME:
-        return "Property type: entire home confirmed"
-    if evidence is PropertyTypeEvidence.NOT_ENTIRE_HOME:
-        return "Property type: not entire home"
-    return "Property type: unknown"
+def _format_lodging_kind(kind: LodgingKind) -> str:
+    if kind is LodgingKind.ENTIRE_HOME:
+        return "Lodging: entire home"
+    if kind is LodgingKind.PRIVATE_ROOM:
+        return "Lodging: private room"
+    if kind is LodgingKind.HOTEL:
+        return "Lodging: hotel"
+    return "Lodging: unknown"
+
+
+def _format_unit_hints(offer: HotelOffer) -> Optional[str]:
+    parts: list[str] = []
+    if offer.bedrooms is not None:
+        parts.append(f"{offer.bedrooms} bedroom" + ("" if offer.bedrooms == 1 else "s"))
+    if offer.bathrooms is not None:
+        parts.append(f"{offer.bathrooms} bathroom" + ("" if offer.bathrooms == 1 else "s"))
+    if offer.beds is not None:
+        parts.append(f"{offer.beds} bed" + ("" if offer.beds == 1 else "s"))
+    return ", ".join(parts) if parts else None
+
+
+def _print_hotel_offer_details(offer: HotelOffer) -> None:
+    print(f"    {_format_cancellation_evidence(offer.cancellation_evidence)}")
+    print(f"    {_format_lodging_kind(offer.lodging_kind)}")
+    units = _format_unit_hints(offer)
+    if units:
+        print(f"    {units}")
+
+
+def _hotel_offer_identity(offer: HotelOffer) -> Tuple[str, str]:
+    title = " ".join(offer.title.split()).casefold()
+    address = " ".join((offer.address or "").split()).casefold()
+    return (title, address)
+
+
+def _cheapest_by_identity(offers: Sequence[HotelOffer]) -> dict[Tuple[str, str], HotelOffer]:
+    chosen: dict[Tuple[str, str], HotelOffer] = {}
+    for offer in offers:
+        key = _hotel_offer_identity(offer)
+        current = chosen.get(key)
+        if current is None or offer.total_price_eur < current.total_price_eur:
+            chosen[key] = offer
+    return chosen
+
+
+def _join_cancellation_rows(
+    free_offers: Sequence[HotelOffer],
+    open_offers: Sequence[HotelOffer],
+) -> Tuple[Tuple[HotelOffer, Optional[HotelOffer], Optional[HotelOffer]], ...]:
+    free_map = _cheapest_by_identity(free_offers)
+    open_map = _cheapest_by_identity(open_offers)
+    rows: list[Tuple[HotelOffer, Optional[HotelOffer], Optional[HotelOffer]]] = []
+    for key in set(free_map) | set(open_map):
+        free_offer = free_map.get(key)
+        open_offer = open_map.get(key)
+        sample = free_offer or open_offer
+        assert sample is not None
+        rows.append((sample, free_offer, open_offer))
+    rows.sort(
+        key=lambda row: (
+            min(offer.total_price_eur for offer in (row[1], row[2]) if offer is not None),
+            row[0].title.casefold(),
+        )
+    )
+    return tuple(rows)
+
+
+def _print_cancellation_compare(
+    free_result: HotelQuerySuccess,
+    open_result: HotelQuerySuccess,
+) -> None:
+    print("\n=== Cancellation compare ===")
+    rows = _join_cancellation_rows(free_result.offers, open_result.offers)
+    if not rows:
+        print("  (no matching stays)")
+        return
+    for sample, free_offer, open_offer in rows:
+        free_label = f"{free_offer.total_price_eur:.0f} €" if free_offer is not None else "—"
+        open_label = f"{open_offer.total_price_eur:.0f} €" if open_offer is not None else "—"
+        delta = ""
+        if free_offer is not None and open_offer is not None:
+            diff = free_offer.total_price_eur - open_offer.total_price_eur
+            delta = f"  delta {diff:.0f} €"
+        print(f"  {sample.title}  free cancel {free_label}  no free cancel {open_label}{delta}")
+        _print_hotel_offer_details(sample)
 
 
 def _print_hotel_report(report) -> None:
     any_success = False
-    for result in report.queries:
+    queries = report.queries
+    if (
+        len(queries) == 2
+        and isinstance(queries[0], HotelQuerySuccess)
+        and isinstance(queries[1], HotelQuerySuccess)
+        and queries[0].query.free_cancellation
+        and not queries[1].query.free_cancellation
+    ):
+        _print_cancellation_compare(queries[0], queries[1])
+    for result in queries:
         query = result.query
         nights_label = "night" if query.nights == 1 else "nights"
         header = (
@@ -200,9 +297,7 @@ def _print_hotel_report(report) -> None:
                 rating = offer.rating or "-"
                 address = f"  {offer.address}" if offer.address else ""
                 print(f"  {offer.total_price} total stay  rating {rating}  {offer.title}{address}")
-                print(f"    {_format_cancellation_evidence(offer.cancellation_evidence)}")
-                if query.entire_home:
-                    print(f"    {_format_property_type_evidence(offer.property_type_evidence)}")
+                _print_hotel_offer_details(offer)
             print(
                 f"  Raw cards: {result.raw_count}; "
                 f"eligible: {result.eligible_count}; "
@@ -251,12 +346,12 @@ def _run_flights(args: argparse.Namespace) -> int:
 
 def _run_hotels(args: argparse.Namespace) -> int:
     try:
-        query = _validate_hotel_args(args)
+        queries = _validate_hotel_args(args)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    report = search_hotels((query,), top=args.top)
+    report = search_hotels(queries, top=args.top)
     _print_hotel_report(report)
 
     if args.save:
@@ -372,6 +467,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--allow-non-refundable",
         action="store_true",
         help="Include non-refundable stays (default filters to free cancellation)",
+    )
+    hotels.add_argument(
+        "--compare-cancellation",
+        action="store_true",
+        help=(
+            "Run two sequential searches (free cancellation, then rates without that chip) "
+            "and print a joined price table"
+        ),
     )
     hotels.add_argument(
         "--save",

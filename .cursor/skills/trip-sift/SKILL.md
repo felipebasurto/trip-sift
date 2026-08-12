@@ -21,7 +21,7 @@ After `uv sync` and `uv run playwright install chromium`, the entry point is ava
 
 ```bash
 uv run trip-sift flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--save FILE]
-uv run trip-sift hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--save FILE]
+uv run trip-sift hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
 ```
 
 Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one route. Pass a return leg as a second route, not as a round trip.
@@ -107,9 +107,10 @@ Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hote
 ### Hotels
 
 - Free cancellation is on by default; use `--allow-non-refundable` only after explicit user consent.
+- `--compare-cancellation` runs two sequential Booking searches (with the free-cancellation chip, then without) and prints a joined price table. Do not combine it with `--allow-non-refundable`. Do not parallelize. If one of the two queries fails, skip the join.
 - `--adults` defaults to 2. Override for solo travelers.
 - `--min-rating` is applied locally after the scrape. It is not a Booking chip.
-- Treat cancellation and property type as observed evidence. Do not present unknown card evidence as confirmed.
+- Treat cancellation, `lodging_kind`, and bed/bedroom/bathroom counts as observed evidence. Do not present unknown card evidence as confirmed. Do not guess “hotel” from the property title.
 - Remind the user to verify the final total and cancellation terms on Booking.com before booking.
 
 ## Recovery

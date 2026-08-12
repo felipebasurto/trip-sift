@@ -49,14 +49,17 @@ uv run trip-sift hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
   Booking chips: oos=1
   246 € total stay  rating 8,9  Hotel Golden Key  Praga 1
     Cancellation: free
+    Lodging: hotel
   291 € total stay  rating 9,2  Vinohrady Apartment  Praga 2
     Cancellation: free
+    Lodging: entire home
+    2 bedrooms, 1 bathroom, 3 beds
   Raw cards: 40; eligible: 12; shown: 2
 ```
 
-Prices are totals for the whole stay, not per night. Free cancellation is required by default; use `--allow-non-refundable` only when you explicitly want other stays.
+Prices are totals for the whole stay, not per night. Free cancellation is required by default; use `--allow-non-refundable` only when you explicitly want other stays. `--compare-cancellation` runs two sequential searches (with the free-cancellation chip, then without) and prints a joined price table; do not combine it with `--allow-non-refundable`.
 
-The output separates what you asked for (`Filters`), what Booking was actually told (`Booking chips`), and what each card actually showed (`Cancellation`), because those three can disagree. Note that `--min-rating 8.5` appears under `Filters` but produces no chip: only free cancellation and `--entire-home` are pushed to Booking, and the rating is applied locally to the scraped cards.
+The output separates what you asked for (`Filters`), what Booking was actually told (`Booking chips`), and what each card actually showed (`Cancellation`, `Lodging`, beds), because those can disagree. Note that `--min-rating 8.5` appears under `Filters` but produces no chip: only free cancellation and `--entire-home` are pushed to Booking, and the rating is applied locally to the scraped cards.
 
 ## How it works
 
@@ -98,6 +101,7 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 | `--min-rating` | off | Minimum Booking review score, 0 to 10. |
 | `--entire-home` | off | Require entire homes. Cards with unknown property type may remain. |
 | `--allow-non-refundable` | off | Include stays without free cancellation. |
+| `--compare-cancellation` | off | Two sequential searches (free cancellation on, then off) and a joined price table. |
 | `--save FILE` | off | Write the JSON report atomically. |
 
 | Exit code | Meaning |
@@ -208,7 +212,7 @@ Both run a live search with the same Chromium and the same pacing as the CLI.
 - Flights are one-way only, and `--max-stops` is `0` or `1`. Adults and cabin are configurable (`--adults`, `--cabin`). There is no flag to shorten the delays or to parallelize requests.
 - The flight scrape runs in English (`hl=en`) for stable rendered evidence; prices are still EUR. Hotels scrape in Spanish against our own parser.
 - Flight ranking adds a flat estimate for known low-cost carriers, not a fare quote. The low-cost list is partial, so an airline missing from it is not evidence of a bag-inclusive fare. Confirm the checked bag on Google Flights before booking.
-- Hotel cancellation and property type are reported as observed evidence, and `unknown` means the card did not say. `--entire-home` therefore cannot remove every non-home. Confirm the final total and the cancellation terms on Booking.com before booking.
+- Hotel cancellation, lodging kind, and bed counts are reported as observed evidence, and `unknown` means the card did not say. `--entire-home` therefore cannot remove every non-home. Confirm the final total and the cancellation terms on Booking.com before booking.
 - Finding nothing eligible still exits `0` and prints `(no eligible offers)` or `(no eligible stays)`. Widen the filters or check the route.
 - If Chromium is missing you get `browser_unavailable`. Run `uv run playwright install chromium`.
 - After repeated failures, stop for 30 to 60 minutes and retry a small query set.

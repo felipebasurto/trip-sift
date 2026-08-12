@@ -36,6 +36,7 @@ from trip_sift.orchestration import (
 )
 from trip_sift.parsers import (
     parse_cancellation_evidence,
+    parse_lodging_kind,
     parse_price_eur,
     parse_property_type_evidence,
     parse_rating,
@@ -74,6 +75,7 @@ def _normalize_card(card: RawHotelCard) -> Optional[HotelOffer]:
         details=card.details,
         cancellation_evidence=parse_cancellation_evidence(card.details),
         property_type_evidence=parse_property_type_evidence(card.details),
+        lodging_kind=parse_lodging_kind(card.details),
         bedrooms=hints["bedrooms"],
         bathrooms=hints["bathrooms"],
         beds=hints["beds"],

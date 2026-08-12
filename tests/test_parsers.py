@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from trip_sift.models import CancellationEvidence, PropertyTypeEvidence
+from trip_sift.models import CancellationEvidence, LodgingKind, PropertyTypeEvidence
 from trip_sift.parsers import (
     parse_cancellation_evidence,
     parse_duration_hours,
+    parse_lodging_kind,
     parse_price_eur,
     parse_property_type_evidence,
     parse_rating,
@@ -171,6 +172,24 @@ class ParserTests(unittest.TestCase):
         for text, want in cases:
             with self.subTest(text=text):
                 self.assertEqual(parse_property_type_evidence(text), want)
+
+    def test_parse_lodging_kind(self) -> None:
+        cases = [
+            ("Apartamento entero", LodgingKind.ENTIRE_HOME),
+            ("Entire home", LodgingKind.ENTIRE_HOME),
+            ("Habitación privada", LodgingKind.PRIVATE_ROOM),
+            ("Private room", LodgingKind.PRIVATE_ROOM),
+            ("Shared room", LodgingKind.PRIVATE_ROOM),
+            ("Hotel room", LodgingKind.HOTEL),
+            ("Habitación de hotel", LodgingKind.HOTEL),
+            ("Hotel Bruno\nCancelación gratuita", LodgingKind.UNKNOWN),
+            ("2 dormitorios", LodgingKind.UNKNOWN),
+            ("", LodgingKind.UNKNOWN),
+            (None, LodgingKind.UNKNOWN),
+        ]
+        for text, want in cases:
+            with self.subTest(text=text):
+                self.assertEqual(parse_lodging_kind(text), want)
 
     def test_parse_unit_hints(self) -> None:
         cases = [

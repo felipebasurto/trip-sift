@@ -37,7 +37,8 @@
 
 - Hotel prices are total-stay prices. Keep requested filters, applied Booking chips, and observed card evidence distinct.
 - Hotel searches require free cancellation by default. Only an explicit caller or CLI opt-out may include non-refundable stays.
-- Do not claim cancellation or property type when card evidence is unknown.
+- `--compare-cancellation` runs two sequential Booking scrapes (free cancellation on, then off) and joins stays by title+address. Do not parallelize. If one query fails, print both results and skip the join.
+- `lodging_kind` is observed card evidence (`entire_home` / `private_room` / `hotel` / `unknown`). Do not guess hotel from the title. Do not claim cancellation, lodging kind, or unit counts when unknown.
 - Callers must verify the final total and cancellation terms on Booking.com before booking.
 
 ## Tests

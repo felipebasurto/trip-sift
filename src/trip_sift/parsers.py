@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from trip_sift.models import CancellationEvidence, PropertyTypeEvidence
+from trip_sift.models import CancellationEvidence, LodgingKind, PropertyTypeEvidence
 
 
 def parse_price_eur(price_text: str | None) -> float | None:
@@ -151,6 +151,32 @@ def parse_property_type_evidence(card_text: str | None) -> PropertyTypeEvidence:
     if any(re.search(pat, text) for pat in _ENTIRE_HOME_PATTERNS):
         return PropertyTypeEvidence.ENTIRE_HOME
     return PropertyTypeEvidence.UNKNOWN
+
+
+_PRIVATE_ROOM_PATTERNS = (
+    r"habitaci[oó]n\s+privada",
+    r"private\s+room",
+    r"shared\s+room",
+    r"habitaci[oó]n\s+compartida",
+)
+
+_HOTEL_ROOM_PATTERNS = (
+    r"hotel\s+room",
+    r"habitaci[oó]n\s+de\s+hotel",
+)
+
+
+def parse_lodging_kind(card_text: str | None) -> LodgingKind:
+    if not card_text:
+        return LodgingKind.UNKNOWN
+    text = card_text.replace("\xa0", " ").lower()
+    if any(re.search(pat, text) for pat in _PRIVATE_ROOM_PATTERNS):
+        return LodgingKind.PRIVATE_ROOM
+    if any(re.search(pat, text) for pat in _HOTEL_ROOM_PATTERNS):
+        return LodgingKind.HOTEL
+    if any(re.search(pat, text) for pat in _ENTIRE_HOME_PATTERNS):
+        return LodgingKind.ENTIRE_HOME
+    return LodgingKind.UNKNOWN
 
 
 def parse_unit_hints(card_text: str | None) -> dict[str, int | None]:
