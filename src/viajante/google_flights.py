@@ -337,9 +337,7 @@ def fetch_search_html(
             status = getattr(response, "status", 200)
     except urllib.error.HTTPError as exc:
         if exc.code in {403, 429, 503}:
-            raise GoogleFlightsBlocked(
-                f"Google Flights HTTP {exc.code} from {url}"
-            ) from exc
+            raise GoogleFlightsBlocked(f"Google Flights HTTP {exc.code} from {url}") from exc
         raise
     html = _decode_http_body(raw, encoding)
     _raise_if_blocked(status, html, final_url, url)
