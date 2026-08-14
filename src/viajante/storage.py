@@ -9,13 +9,13 @@ from typing import Mapping
 
 
 def default_state_dir() -> Path:
-    env = os.environ.get("TRIP_SIFT_STATE_DIR")
+    env = os.environ.get("VIAJANTE_STATE_DIR")
     if env:
         return Path(env)
     xdg = os.environ.get("XDG_STATE_HOME")
     if xdg:
-        return Path(xdg) / "trip-sift"
-    return Path.home() / ".local" / "state" / "trip-sift"
+        return Path(xdg) / "viajante"
+    return Path.home() / ".local" / "state" / "viajante"
 
 
 def write_json_atomic(payload: Mapping[str, object], destination: Path) -> None:

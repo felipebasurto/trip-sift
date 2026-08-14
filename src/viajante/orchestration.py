@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from trip_sift.models import SearchError, SearchErrorCode
+from viajante.models import SearchError, SearchErrorCode
 
 REQUEST_DELAY_SECONDS = 4.5
 REQUEST_JITTER_SECONDS = 1.5
