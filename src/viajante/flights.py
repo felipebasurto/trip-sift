@@ -76,9 +76,7 @@ LOW_COST_NAMES = [
 ]
 
 NO_RESULTS_MESSAGE = "Google Flights returned no flights for this route and date."
-REJECTED_MESSAGE = (
-    "Google Flights rejected this route or date (unknown airport or invalid query)."
-)
+REJECTED_MESSAGE = "Google Flights rejected this route or date (unknown airport or invalid query)."
 
 FlightSort = Literal["ranked", "fare"]
 FetchMode = Literal["auto", "sweep", "detail"]
@@ -496,9 +494,7 @@ def search_flights(
             max_layover_hours=max_layover_hours,
         )
         retry_indexes = [
-            index
-            for index, result in enumerate(report.queries)
-            if _needs_detail_fallback(result)
+            index for index, result in enumerate(report.queries) if _needs_detail_fallback(result)
         ]
         if retry_indexes:
             report_progress("sweep empty/markup/block; falling back to detail")
