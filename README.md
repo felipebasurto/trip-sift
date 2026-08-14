@@ -52,7 +52,7 @@ uv run viajante dates MAD-LHR --from 2026-09-01 --to 2026-09-30
   2026-09-03       67 €
 ```
 
-One compact table: date → cheapest EUR. The window is at most 31 days. This uses the owned Google Flights date-grid RPC on the same Chrome TLS session as sweep, not N full offer dumps. Airline and stops are omitted when the calendar body does not carry them.
+One compact table: date → cheapest EUR. The window is at most 31 days. This uses the owned Google Flights date-grid RPC on the same Chrome TLS session as sweep, not N full offer dumps. Airline and stops are omitted when the calendar body does not carry them. If that compact calendar parse misses, viajante prices each day with the shopping sweep and still prints one row per date (`fetch_backend: sweep`). `--fetch sweep` is accepted; `detail` is ignored because this command is HTTP-only.
 
 ## Cheap destinations
 
@@ -113,7 +113,10 @@ You or an agent pass a route and dates. The CLI validates the input before any b
 
 ## Compare dates and save JSON
 
+For a cheapest-per-day grid, prefer `viajante dates` (31-day cap, one row per date). A comma list still dumps full offer blocks when you need the cards:
+
 ```bash
+uv run viajante dates MAD-BCN --from 2026-09-01 --to 2026-09-14 --save results/dates.viajante.json
 uv run viajante flights \
   MAD-BCN:2026-09-01,2026-09-02,2026-09-03 \
   --max-stops 0 \
@@ -121,7 +124,7 @@ uv run viajante flights \
   --save results/search.viajante.json
 ```
 
-Each date is searched sequentially and printed as its own block. Progress goes to stderr so you can pipe the table on its own. A 10-date sweep is a few seconds of HTTP. The same batch on `--fetch detail` still sleeps 4.5 to 6 seconds between queries on purpose.
+Each `flights` date is searched sequentially and printed as its own block. Progress goes to stderr so you can pipe the table on its own. A 10-date sweep is a few seconds of HTTP. The same batch on `--fetch detail` still sleeps 4.5 to 6 seconds between queries on purpose.
 
 ## CLI reference
 
@@ -146,6 +149,7 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 |---|---|---|
 | `--from` / `--to` | required | Inclusive departure window. Cap is 31 days. |
 | `--max-stops` / `--adults` / `--cabin` | `1` / `1` / `economy` | Same meaning as `flights`. |
+| `--fetch` | `sweep` | Calendar uses the date-grid RPC. On a compact miss, each day is priced with shopping sweep. `detail` is accepted and ignored. |
 | `--save FILE` | off | Write the calendar JSON atomically. |
 
 | `explore` flag | Default | Behavior |
@@ -272,7 +276,7 @@ for result in report.queries:
             print(offer.total_price_eur, offer.title)
 ```
 
-`search_flights(..., fetch="auto")` matches the CLI. Sweep does not start Chromium. Hotels still use the same Chromium pacing as the CLI.
+`search_flights(..., fetch="auto")` matches the CLI. Sweep does not start Chromium. Hotels still use the same Chromium pacing as the CLI. `search_dates`, `search_explore`, and `lookup_airports` are the same surfaces as the `dates`, `explore`, and `airports` commands.
 
 ## Limitations
 

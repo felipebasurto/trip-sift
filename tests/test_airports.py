@@ -18,6 +18,7 @@ class AirportLookupTests(unittest.TestCase):
         self.assertEqual(airport.iata, "MAD")
         self.assertIn("Madrid", airport.city)
         self.assertTrue(is_known_iata("MAD"))
+        self.assertEqual([row.iata for row in lookup_airports("MAD")], ["MAD"])
 
     def test_london_finds_heathrow_and_gatwick(self) -> None:
         rows = lookup_airports("london")

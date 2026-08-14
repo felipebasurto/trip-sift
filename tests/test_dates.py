@@ -15,7 +15,7 @@ from viajante.dates import (
     search_dates,
     validate_date_window,
 )
-from viajante.google_flights import GoogleFlightsRejected
+from viajante.google_flights import GoogleFlightsRejected, RawFlightCard
 from viajante.google_flights_rpc import (
     CompactCalendarDay,
     CompactParseMiss,
@@ -37,10 +37,16 @@ def _priced(day: str, price: int) -> list[object]:
 
 
 class FakeCalendarSource:
-    def __init__(self, days: tuple[CompactCalendarDay, ...] | Exception) -> None:
+    def __init__(
+        self,
+        days: tuple[CompactCalendarDay, ...] | Exception,
+        cards: dict[date, tuple[RawFlightCard, ...]] | None = None,
+    ) -> None:
         self.days = days
+        self.cards = cards or {}
         self.closed = False
         self.calls = 0
+        self.fetch_calls = 0
         self.config = SimpleNamespace(html_lang="en", currency="EUR")
 
     def fetch_calendar(self, query, start, end):
@@ -48,6 +54,10 @@ class FakeCalendarSource:
         if isinstance(self.days, Exception):
             raise self.days
         return self.days
+
+    def fetch(self, query):
+        self.fetch_calls += 1
+        return self.cards.get(query.departure_date, ())
 
     def close(self) -> None:
         self.closed = True
@@ -121,6 +131,41 @@ class DateSearchTests(unittest.TestCase):
         self.assertEqual(report.days[0].status, "error")
         self.assertEqual(report.days[0].error.code, SearchErrorCode.REJECTED)
         self.assertEqual(report.days[1].error.code, SearchErrorCode.REJECTED)
+
+    def test_calendar_miss_falls_back_to_per_day_sweep(self) -> None:
+        source = FakeCalendarSource(
+            CompactParseMiss("no wrb.fr calendar payload"),
+            cards={
+                date(2026, 9, 1): (
+                    RawFlightCard(
+                        airline="Iberia",
+                        departure="07:00",
+                        arrival="08:20",
+                        duration="1 hr 20 min",
+                        stops="Nonstop",
+                        price="€45",
+                    ),
+                ),
+                date(2026, 9, 2): (
+                    RawFlightCard(
+                        airline="Vueling",
+                        departure="09:00",
+                        arrival="10:20",
+                        duration="1 hr 20 min",
+                        stops="Nonstop",
+                        price="€38",
+                    ),
+                ),
+            },
+        )
+        report = search_dates("MAD", "BCN", date(2026, 9, 1), date(2026, 9, 2), source=source)
+        self.assertEqual(report.fetch_backend, "sweep")
+        self.assertEqual(source.fetch_calls, 2)
+        self.assertEqual(report.days[0].price_eur, 45.0)
+        self.assertEqual(report.days[0].airline, "Iberia")
+        self.assertEqual(report.days[0].stops_count, 0)
+        self.assertEqual(report.days[1].price_eur, 38.0)
+        self.assertTrue(source.closed)
 
 
 class DateCliTests(unittest.TestCase):

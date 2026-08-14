@@ -70,7 +70,6 @@ def search_explore(
     report_progress = progress or (lambda _: None)
     report_progress(f"explore: from {origin} on {start.isoformat()} ({days}-day trip window)")
     started = time.perf_counter()
-    owned = source is None
     client = source or GoogleFlightsHttpSource()
     error: Optional[SearchError] = None
     destinations: tuple[ExploreDestination, ...] = ()
@@ -103,8 +102,7 @@ def search_explore(
         priced.sort(key=lambda row: (row.price_eur is None, row.price_eur or 0.0, row.iata))
         destinations = tuple(priced)
     finally:
-        if owned:
-            client.close()
+        client.close()
     fetch_ms = max(0, int((time.perf_counter() - started) * 1000))
     return ExploreReport(
         searched_at=datetime.now(timezone.utc),

@@ -52,12 +52,11 @@ def lookup_airports(query: str, *, limit: int = 20) -> Tuple[Airport, ...]:
         raise ValueError("airport query must not be blank")
     table = _iata_table()
     exact = get_airport(needle.upper()) if len(needle) == 3 and needle.isalpha() else None
+    if exact is not None:
+        return (exact,)
     city_hits: list[Airport] = []
     other_hits: list[Airport] = []
-    seen = {exact.iata} if exact is not None else set()
     for code, row in table.items():
-        if code in seen:
-            continue
         airport = _from_row(code, row)
         city = airport.city.casefold()
         name = airport.name.casefold()
@@ -67,8 +66,7 @@ def lookup_airports(query: str, *, limit: int = 20) -> Tuple[Airport, ...]:
             other_hits.append(airport)
     city_hits.sort(key=lambda item: (item.iata, item.name))
     other_hits.sort(key=lambda item: (item.iata, item.name))
-    rows = ([exact] if exact is not None else []) + city_hits + other_hits
-    return tuple(rows[:limit])
+    return tuple((city_hits + other_hits)[:limit])
 
 
 def _from_row(code: str, row: Mapping[str, object]) -> Airport:
