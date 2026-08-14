@@ -46,6 +46,7 @@ OFFER_KEYS = {
     "layover_city",
     "layover_hours",
     "flight_numbers",
+    "booking_token",
     "baggage_buffer_eur",
     "needs_bag_verify",
 }

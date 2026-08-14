@@ -68,6 +68,7 @@ class FlightOffer:
     layover_city: Optional[str] = None
     layover_hours: Optional[float] = None
     flight_numbers: Optional[Tuple[str, ...]] = None
+    booking_token: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.price_eur <= 0:
@@ -91,6 +92,7 @@ class FlightOffer:
             "layover_city": self.layover_city,
             "layover_hours": self.layover_hours,
             "flight_numbers": list(self.flight_numbers) if self.flight_numbers else None,
+            "booking_token": self.booking_token,
             "baggage_buffer_eur": self.baggage_buffer_eur,
             "needs_bag_verify": self.needs_bag_verify,
         }

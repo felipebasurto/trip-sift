@@ -103,6 +103,7 @@ class RawFlightCard:
     layover_hours: Optional[float] = None
     flight_numbers: Optional[tuple[str, ...]] = None
     airline_codes: Optional[tuple[str, ...]] = None
+    booking_token: Optional[str] = None
 
 
 class NoFlightsFound(Exception):
@@ -472,6 +473,7 @@ class GoogleFlightsHttpSource:
                 layover_hours=card.layover_hours,
                 flight_numbers=card.flight_numbers,
                 airline_codes=card.airline_codes,
+                booking_token=card.booking_token,
             )
             for card in compact
         )

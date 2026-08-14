@@ -354,6 +354,8 @@ def _normalize_offer(
     airlines: Optional[Sequence[str]] = None,
     exclude_airlines: Optional[Sequence[str]] = None,
     depart_window: Optional[Tuple[int, int]] = None,
+    max_duration_hours: Optional[float] = None,
+    min_layover_hours: Optional[float] = None,
 ) -> Optional[FlightOffer]:
     price_text = raw.price or ""
     price_eur = parse_price_eur(price_text)
@@ -367,12 +369,27 @@ def _normalize_offer(
         return None
     stops_count = parse_stops_count(raw.stops)
     layover_hours = raw.layover_hours
+    duration_hours = parse_duration_hours(raw.duration)
+    if (
+        max_duration_hours is not None
+        and duration_hours is not None
+        and duration_hours > max_duration_hours
+    ):
+        return None
     if (
         max_layover_hours is not None
         and stops_count
         and stops_count > 0
         and layover_hours is not None
         and layover_hours > max_layover_hours
+    ):
+        return None
+    if (
+        min_layover_hours is not None
+        and stops_count
+        and stops_count > 0
+        and layover_hours is not None
+        and layover_hours < min_layover_hours
     ):
         return None
     airline = raw.airline or ""
@@ -383,12 +400,13 @@ def _normalize_offer(
         price=price_text,
         price_eur=price_eur,
         duration=raw.duration,
-        duration_hours=parse_duration_hours(raw.duration),
+        duration_hours=duration_hours,
         stops=raw.stops,
         stops_count=stops_count,
         layover_city=raw.layover_city,
         layover_hours=layover_hours,
         flight_numbers=raw.flight_numbers,
+        booking_token=raw.booking_token,
         baggage_buffer_eur=baggage_buffer_eur(airline, buffer_eur=buffer_eur),
         needs_bag_verify=is_low_cost(airline),
     )
@@ -451,6 +469,8 @@ def _run_search(
     fetch_backend: Optional[FetchBackend] = None,
     fetch_ms: Optional[int] = None,
     max_layover_hours: Optional[float] = None,
+    min_layover_hours: Optional[float] = None,
+    max_duration_hours: Optional[float] = None,
     airlines: Optional[Sequence[str]] = None,
     exclude_airlines: Optional[Sequence[str]] = None,
     depart_window: Optional[Tuple[int, int]] = None,
@@ -476,6 +496,8 @@ def _run_search(
                             query.max_stops,
                             buffer_eur=buffer_eur,
                             max_layover_hours=max_layover_hours,
+                            min_layover_hours=min_layover_hours,
+                            max_duration_hours=max_duration_hours,
                             airlines=airlines,
                             exclude_airlines=exclude_airlines,
                             depart_window=depart_window,
@@ -546,6 +568,8 @@ def _search_with_source(
     sort: FlightSort,
     inter_query_delay: Callable[[random.Random], float],
     max_layover_hours: Optional[float] = None,
+    min_layover_hours: Optional[float] = None,
+    max_duration_hours: Optional[float] = None,
     airlines: Optional[Sequence[str]] = None,
     exclude_airlines: Optional[Sequence[str]] = None,
     depart_window: Optional[Tuple[int, int]] = None,
@@ -565,6 +589,8 @@ def _search_with_source(
             sort=sort,
             inter_query_delay=inter_query_delay,
             max_layover_hours=max_layover_hours,
+            min_layover_hours=min_layover_hours,
+            max_duration_hours=max_duration_hours,
             airlines=airlines,
             exclude_airlines=exclude_airlines,
             depart_window=depart_window,
@@ -582,6 +608,8 @@ def search_flights(
     sort: FlightSort = "ranked",
     fetch: FetchMode = "auto",
     max_layover_hours: Optional[float] = None,
+    min_layover_hours: Optional[float] = None,
+    max_duration_hours: Optional[float] = None,
     airlines: Optional[Sequence[str]] = None,
     exclude_airlines: Optional[Sequence[str]] = None,
     depart_window: Optional[Tuple[int, int]] = None,
@@ -594,6 +622,16 @@ def search_flights(
         raise ValueError("buffer_eur must not be negative")
     if max_layover_hours is not None and max_layover_hours < 0:
         raise ValueError("max_layover_hours must not be negative")
+    if min_layover_hours is not None and min_layover_hours < 0:
+        raise ValueError("min_layover_hours must not be negative")
+    if max_duration_hours is not None and max_duration_hours < 0:
+        raise ValueError("max_duration_hours must not be negative")
+    if (
+        min_layover_hours is not None
+        and max_layover_hours is not None
+        and min_layover_hours > max_layover_hours
+    ):
+        raise ValueError("min layover must be at or below max layover")
     if sort not in ("ranked", "fare", "duration"):
         raise ValueError("sort must be 'ranked', 'fare', or 'duration'")
     if fetch not in ("auto", "sweep", "detail"):
@@ -613,6 +651,8 @@ def search_flights(
             sort=sort,
             inter_query_delay=sweep_inter_query_delay_seconds,
             max_layover_hours=max_layover_hours,
+            min_layover_hours=min_layover_hours,
+            max_duration_hours=max_duration_hours,
             airlines=airlines,
             exclude_airlines=exclude_airlines,
             depart_window=depart_window,
@@ -632,6 +672,8 @@ def search_flights(
                 sort=sort,
                 inter_query_delay=inter_query_delay_seconds,
                 max_layover_hours=max_layover_hours,
+                min_layover_hours=min_layover_hours,
+                max_duration_hours=max_duration_hours,
                 airlines=airlines,
                 exclude_airlines=exclude_airlines,
                 depart_window=depart_window,
@@ -660,6 +702,8 @@ def search_flights(
             sort=sort,
             inter_query_delay=inter_query_delay_seconds,
             max_layover_hours=max_layover_hours,
+            min_layover_hours=min_layover_hours,
+            max_duration_hours=max_duration_hours,
             airlines=airlines,
             exclude_airlines=exclude_airlines,
             depart_window=depart_window,

@@ -884,12 +884,14 @@ class LiveShapedCompactTests(unittest.TestCase):
         self.assertEqual(card.layover_hours, 18.0)
         self.assertEqual(card.flight_numbers, ("TP1013", "TP1922"))
         self.assertEqual(card.airline_codes, ("TP",))
+        self.assertEqual(card.booking_token, "tok")
         offer = _normalize_offer(card, max_stops=1)
         assert offer is not None
         self.assertEqual(offer.arrival, "09:00")
         self.assertEqual(offer.layover_city, "Lisbon")
         self.assertEqual(offer.layover_hours, 18.0)
         self.assertEqual(offer.flight_numbers, ("TP1013", "TP1922"))
+        self.assertEqual(offer.booking_token, "tok")
 
     def test_layover_from_legs_when_itinerary_block_is_missing(self) -> None:
         item = _tap_long_layover()

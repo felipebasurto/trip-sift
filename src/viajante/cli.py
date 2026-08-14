@@ -61,6 +61,7 @@ Examples:
   viajante flights MAD-BCN:2026-09-01 --fetch detail
   viajante flights MAD-BCN:2026-09-01 --exclude-airlines UX --depart-window 7-12 --fetch sweep
   viajante flights MAD-BCN:2026-09-01 --airlines IB,I2 --sort duration
+  viajante flights MAD-BCN:2026-09-01 --max-duration 4 --min-layover 1 --max-layover 8
 """
 
 DATES_EXAMPLES = """\
@@ -101,6 +102,16 @@ def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
         raise ValueError("--adults must be at least 1")
     if args.max_layover is not None and args.max_layover < 0:
         raise ValueError("--max-layover must not be negative")
+    if args.min_layover is not None and args.min_layover < 0:
+        raise ValueError("--min-layover must not be negative")
+    if args.max_duration is not None and args.max_duration < 0:
+        raise ValueError("--max-duration must not be negative")
+    if (
+        args.min_layover is not None
+        and args.max_layover is not None
+        and args.min_layover > args.max_layover
+    ):
+        raise ValueError("--min-layover must be at or below --max-layover")
     parse_airline_codes(args.airlines)
     parse_airline_codes(args.exclude_airlines)
     parse_depart_window(args.depart_window)
@@ -475,6 +486,8 @@ def _run_flights(args: argparse.Namespace) -> int:
         sort=args.sort,
         fetch=args.fetch,
         max_layover_hours=args.max_layover,
+        min_layover_hours=args.min_layover,
+        max_duration_hours=args.max_duration,
         airlines=parse_airline_codes(args.airlines),
         exclude_airlines=parse_airline_codes(args.exclude_airlines),
         depart_window=parse_depart_window(args.depart_window),
@@ -763,6 +776,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         metavar="HOURS",
         dest="max_layover",
         help="Drop 1-stop offers whose layover exceeds HOURS (sweep and detail)",
+    )
+    flights.add_argument(
+        "--min-layover",
+        type=float,
+        default=None,
+        metavar="HOURS",
+        dest="min_layover",
+        help="Drop 1-stop offers whose layover is shorter than HOURS",
+    )
+    flights.add_argument(
+        "--max-duration",
+        type=float,
+        default=None,
+        metavar="HOURS",
+        dest="max_duration",
+        help="Drop offers whose elapsed time exceeds HOURS",
     )
     flights.add_argument(
         "--save",

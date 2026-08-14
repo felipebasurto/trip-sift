@@ -629,6 +629,30 @@ class OfferFilterTests(unittest.TestCase):
         self.assertIsNotNone(_normalize_offer(mid, 1, depart_window=(7, 12)))
         self.assertIsNone(_normalize_offer(late, 1, depart_window=(7, 12)))
 
+    def test_max_duration_drops_long_elapsed_time(self) -> None:
+        short = card(duration="1 h 20 min", price="90 €")
+        long = card(duration="6 h", price="40 €")
+        self.assertIsNotNone(_normalize_offer(short, 1, max_duration_hours=4))
+        self.assertIsNone(_normalize_offer(long, 1, max_duration_hours=4))
+
+    def test_min_layover_keeps_nonstops_and_drops_short_connections(self) -> None:
+        nonstop = card(stops="Nonstop", price="80 €")
+        short_hop = card(
+            stops="1 stop",
+            layover_hours=0.5,
+            layover_city="LIS",
+            price="70 €",
+        )
+        long_hop = card(
+            stops="1 stop",
+            layover_hours=3.0,
+            layover_city="LIS",
+            price="75 €",
+        )
+        self.assertIsNotNone(_normalize_offer(nonstop, 1, min_layover_hours=1))
+        self.assertIsNone(_normalize_offer(short_hop, 1, min_layover_hours=1))
+        self.assertIsNotNone(_normalize_offer(long_hop, 1, min_layover_hours=1))
+
     def test_duration_sort_orders_by_hours_then_fare(self) -> None:
         slow = FlightOffer(
             airline="Slow",

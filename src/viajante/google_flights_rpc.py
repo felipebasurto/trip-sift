@@ -58,6 +58,7 @@ class CompactFlightCard:
     layover_hours: Optional[float] = None
     flight_numbers: Optional[tuple[str, ...]] = None
     airline_codes: Optional[tuple[str, ...]] = None
+    booking_token: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -370,7 +371,17 @@ def _itinerary_to_card(item: list[Any]) -> Optional[CompactFlightCard]:
         layover_hours=layover_hours,
         flight_numbers=_flight_numbers(flight),
         airline_codes=_airline_codes(flight),
+        booking_token=_booking_token(item[1] if len(item) > 1 else None),
     )
+
+
+def _booking_token(block: object) -> Optional[str]:
+    if not isinstance(block, list) or len(block) < 2:
+        return None
+    token = block[1]
+    if isinstance(token, str) and token.strip():
+        return token
+    return None
 
 
 def _price_text(block: object) -> Optional[str]:
