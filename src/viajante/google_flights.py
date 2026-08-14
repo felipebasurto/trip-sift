@@ -48,7 +48,7 @@ HTTP_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
-# urllib fallback / tests only. Production sweep uses curl_cffi Chrome impersonation.
+# urllib fallback / tests only. Production sweep uses a Chrome TLS session.
 URLLIB_HEADERS = {
     **HTTP_HEADERS,
     "User-Agent": HTTP_USER_AGENT,
@@ -217,7 +217,7 @@ class SweepHttpClient(Protocol):
 
 
 class ChromeSweepClient:
-    """One curl_cffi session: Chrome TLS/HTTP/2 impersonation and keep-alive."""
+    """One curl_cffi session: Chrome TLS, HTTP/2, keep-alive."""
 
     def __init__(self) -> None:
         self._session = curl_requests.Session(impersonate="chrome")
