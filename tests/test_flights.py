@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Sequence
 from unittest.mock import patch
 
-from trip_sift.flights import (
+from viajante.flights import (
     _normalize_offer,
     _rank_offers,
     _run_search,
@@ -16,15 +16,15 @@ from trip_sift.flights import (
     parse_route_specs,
     search_flights,
 )
-from trip_sift.google_flights import GoogleFlightsMarkupError, NoFlightsFound, RawFlightCard
-from trip_sift.models import (
+from viajante.google_flights import GoogleFlightsMarkupError, NoFlightsFound, RawFlightCard
+from viajante.models import (
     FlightOffer,
     FlightQuery,
     QueryFailure,
     QuerySuccess,
     SearchErrorCode,
 )
-from trip_sift.orchestration import (
+from viajante.orchestration import (
     BACKOFF_BASE_SECONDS,
     BACKOFF_JITTER_SECONDS,
     MAX_ATTEMPTS,
@@ -380,7 +380,7 @@ class FlightsOrchestrationTests(unittest.TestCase):
     def test_search_closes_source(self) -> None:
         query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
         source = FakeSource({("MAD", "BCN", "2026-09-01", 1): (card(airline="Air One"),)})
-        with patch("trip_sift.flights.GoogleFlightsSource", return_value=source):
+        with patch("viajante.flights.GoogleFlightsSource", return_value=source):
             search_flights((query,), top=1)
         self.assertTrue(source.closed)
 

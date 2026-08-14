@@ -9,9 +9,9 @@ from types import SimpleNamespace
 from typing import List, Sequence, Tuple, Union
 from unittest.mock import patch
 
-import trip_sift.hotels as hotels_module
-from trip_sift.booking import BookingResultsTimeout, HotelPage, RawHotelCard
-from trip_sift.hotels import (
+import viajante.hotels as hotels_module
+from viajante.booking import BookingResultsTimeout, HotelPage, RawHotelCard
+from viajante.hotels import (
     _is_eligible,
     _normalize_card,
     _rank_offers,
@@ -19,7 +19,7 @@ from trip_sift.hotels import (
     search_hotels,
     write_hotel_report_atomic,
 )
-from trip_sift.models import (
+from viajante.models import (
     AppliedHotelFilters,
     CancellationEvidence,
     HotelOffer,
@@ -31,7 +31,7 @@ from trip_sift.models import (
     PropertyTypeEvidence,
     SearchErrorCode,
 )
-from trip_sift.orchestration import (
+from viajante.orchestration import (
     BACKOFF_BASE_SECONDS,
     BACKOFF_JITTER_SECONDS,
     MAX_ATTEMPTS,
@@ -541,7 +541,7 @@ class HotelOrchestrationTests(unittest.TestCase):
         )
 
         with patch(
-            "trip_sift.hotels._rank_offers",
+            "viajante.hotels._rank_offers",
             wraps=_rank_offers,
         ) as rank_offers:
             report = _run_search(
@@ -576,7 +576,7 @@ class HotelOrchestrationTests(unittest.TestCase):
         self.assertEqual(source.fetch_calls, [])
 
     def test_search_validates_before_source_construction(self) -> None:
-        with patch("trip_sift.hotels.BookingHotelsSource") as source_class:
+        with patch("viajante.hotels.BookingHotelsSource") as source_class:
             with self.assertRaises(ValueError):
                 search_hotels(())
             with self.assertRaises(ValueError):
@@ -588,8 +588,8 @@ class HotelOrchestrationTests(unittest.TestCase):
         source = FakeSource([RuntimeError("blocked")] * MAX_ATTEMPTS)
 
         with (
-            patch("trip_sift.hotels.BookingHotelsSource", return_value=source),
-            patch("trip_sift.hotels.time.sleep"),
+            patch("viajante.hotels.BookingHotelsSource", return_value=source),
+            patch("viajante.hotels.time.sleep"),
         ):
             report = search_hotels((query(),))
 
@@ -603,7 +603,7 @@ class HotelOrchestrationTests(unittest.TestCase):
         )
         destination = Path("hotels.json")
 
-        with patch("trip_sift.hotels.write_json_atomic") as writer:
+        with patch("viajante.hotels.write_json_atomic") as writer:
             write_hotel_report_atomic(report, destination)
 
         writer.assert_called_once_with(report.to_dict(), destination)

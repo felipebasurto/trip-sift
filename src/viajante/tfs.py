@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 from collections.abc import Mapping, Sequence
 
-from trip_sift.models import FlightCabin, FlightQuery
+from viajante.models import FlightCabin, FlightQuery
 
 _VARINT = 0
 _LEN = 2

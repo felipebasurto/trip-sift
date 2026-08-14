@@ -9,15 +9,15 @@ from datetime import date
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
-from trip_sift.flights import (
+from viajante.flights import (
     DEFAULT_BAGGAGE_BUFFER_EUR,
     FlightSort,
     parse_route_specs,
     search_flights,
     write_report_atomic,
 )
-from trip_sift.hotels import search_hotels, write_hotel_report_atomic
-from trip_sift.models import (
+from viajante.hotels import search_hotels, write_hotel_report_atomic
+from viajante.models import (
     AppliedHotelFilters,
     CancellationEvidence,
     FlightOffer,
@@ -33,19 +33,19 @@ from trip_sift.models import (
 
 FLIGHTS_EXAMPLES = """\
 Examples:
-  trip-sift flights MAD-BCN:2026-09-01
-  trip-sift flights MAD-OPO:2026-10-09:2026-10-12
-  trip-sift flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
-  trip-sift flights MAD-BCN:2026-09-01,2026-09-02 --top 5 --sort fare --save results/search.json
+  viajante flights MAD-BCN:2026-09-01
+  viajante flights MAD-OPO:2026-10-09:2026-10-12
+  viajante flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
+  viajante flights MAD-BCN:2026-09-01,2026-09-02 --top 5 --sort fare --save results/search.json
 """
 
 HOTELS_EXAMPLES = """\
 Examples:
-  trip-sift hotels Prague 2026-12-04 2026-12-07
-  trip-sift hotels "Prague, Czech Republic" 2026-12-04 2026-12-10 --top 5
-  trip-sift hotels Prague 2026-12-04 2026-12-07 --entire-home --min-rating 8.5
-  trip-sift hotels Prague 2026-12-04 2026-12-07 --compare-cancellation
-  trip-sift hotels Prague 2026-12-04 2026-12-07 --save results/hotels.json
+  viajante hotels Prague 2026-12-04 2026-12-07
+  viajante hotels "Prague, Czech Republic" 2026-12-04 2026-12-10 --top 5
+  viajante hotels Prague 2026-12-04 2026-12-07 --entire-home --min-rating 8.5
+  viajante hotels Prague 2026-12-04 2026-12-07 --compare-cancellation
+  viajante hotels Prague 2026-12-04 2026-12-07 --save results/hotels.json
 """
 
 

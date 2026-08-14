@@ -9,13 +9,13 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Literal, Optional, Protocol, Sequence, Tuple
 
-from trip_sift.google_flights import (
+from viajante.google_flights import (
     GoogleFlightsMarkupError,
     GoogleFlightsSource,
     NoFlightsFound,
     RawFlightCard,
 )
-from trip_sift.models import (
+from viajante.models import (
     FlightCabin,
     FlightOffer,
     FlightQuery,
@@ -26,17 +26,17 @@ from trip_sift.models import (
     SearchErrorCode,
     SearchReport,
 )
-from trip_sift.orchestration import (
+from viajante.orchestration import (
     MAX_ATTEMPTS,
     NON_RETRIABLE_CODES,
     inter_query_delay_seconds,
     retry_backoff_seconds,
 )
-from trip_sift.orchestration import (
+from viajante.orchestration import (
     classify_failure as classify_provider_failure,
 )
-from trip_sift.parsers import parse_duration_hours, parse_price_eur, parse_stops_count
-from trip_sift.storage import default_state_dir, write_json_atomic
+from viajante.parsers import parse_duration_hours, parse_price_eur, parse_stops_count
+from viajante.storage import default_state_dir, write_json_atomic
 
 DEFAULT_BAGGAGE_BUFFER_EUR = 70
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from random import Random
 
-from trip_sift.models import SearchErrorCode
-from trip_sift.orchestration import (
+from viajante.models import SearchErrorCode
+from viajante.orchestration import (
     BACKOFF_BASE_SECONDS,
     BACKOFF_JITTER_SECONDS,
     BROWSER_UNAVAILABLE_MARKERS,

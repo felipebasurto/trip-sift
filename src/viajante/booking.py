@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Optional, Tuple
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
-from trip_sift.browser import BrowserSessionConfig, ChromiumSession
-from trip_sift.models import AppliedHotelFilters, HotelQuery
-from trip_sift.storage import write_text_atomic
+from viajante.browser import BrowserSessionConfig, ChromiumSession
+from viajante.models import AppliedHotelFilters, HotelQuery
+from viajante.storage import write_text_atomic
 
 BOOKING_SEARCH_URL = "https://www.booking.com/searchresults.html"
 PROPERTY_CARD_SELECTOR = '[data-testid="property-card"]'

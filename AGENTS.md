@@ -1,18 +1,18 @@
-# Agent notes for trip-sift
+# Agent notes for viajante
 
 ## Where to edit
 
-- `tfs` bytes, cabin, or adults in the Google Flights URL: `src/trip_sift/tfs.py`
-- Google CSS, consent, empty vs markup: `src/trip_sift/google_flights.py`
-- Routes, LCC buffer, or flight ranking: `src/trip_sift/flights.py`
-- Booking URL, chips, or DOM cards: `src/trip_sift/booking.py`
-- Hotel evidence filters or ranking: `src/trip_sift/hotels.py`
-- Delays or retry classification: `src/trip_sift/orchestration.py`
-- Chromium session: `src/trip_sift/browser.py`
-- `--save` or the state directory: `src/trip_sift/storage.py`
-- Flags or printed tables: `src/trip_sift/cli.py`
-- Domain types or JSON keys: `src/trip_sift/models.py`
-- Raw card text to numbers/enums: `src/trip_sift/parsers.py`
+- `tfs` bytes, cabin, or adults in the Google Flights URL: `src/viajante/tfs.py`
+- Google CSS, consent, empty vs markup: `src/viajante/google_flights.py`
+- Routes, LCC buffer, or flight ranking: `src/viajante/flights.py`
+- Booking URL, chips, or DOM cards: `src/viajante/booking.py`
+- Hotel evidence filters or ranking: `src/viajante/hotels.py`
+- Delays or retry classification: `src/viajante/orchestration.py`
+- Chromium session: `src/viajante/browser.py`
+- `--save` or the state directory: `src/viajante/storage.py`
+- Flags or printed tables: `src/viajante/cli.py`
+- Domain types or JSON keys: `src/viajante/models.py`
+- Raw card text to numbers/enums: `src/viajante/parsers.py`
 
 `google_flights.py` owns URL building, consent, card parsing, typed provider failures, and `GoogleFlightsSource`. `booking.py` owns Booking.com URL/chips, consent, card extract, and `BookingHotelsSource`. Session lifecycle lives in `browser.py`. `flights.py` and `hotels.py` are the search loops: pure and offline-testable outside the browser source.
 
@@ -24,11 +24,11 @@
 - No flags to shorten delays or parallelize requests. Progress output is allowed and goes to stderr.
 - Retry only what can succeed on a second try. `NO_RESULTS`, `BROWSER_UNAVAILABLE`, owned Google markup drift (`GoogleFlightsMarkupError`, still reported as `fetch_failed`), and Booking card-wait timeouts (`BookingResultsTimeout`, still `fetch_failed`) fail immediately. Do not hammer Booking after a challenge page.
 - Every offer keeps raw text beside parsed fields (`price`/`price_eur`, `duration`/`duration_hours`, `stops`/`stops_count`).
-- JSON output only with `--save`. Browser state lives outside the checkout (`TRIP_SIFT_STATE_DIR` or XDG state dir), and is always written to a temp file and renamed. Booking fetch failures dump `booking-last-failure.html` / `.txt` there for diagnosis; do not commit those files.
+- JSON output only with `--save`. Browser state lives outside the checkout (`VIAJANTE_STATE_DIR` or XDG state dir), and is always written to a temp file and renamed. Booking fetch failures dump `booking-last-failure.html` / `.txt` there for diagnosis; do not commit those files.
 
 ### Flights
 
-- The flight scrape locale is `hl=en` with `locale="en-US"` for stable rendered evidence and the existing JSON `locale: "en"` contract. Currency comes from `curr=EUR`, independently of `hl`. Card parsing is owned by trip-sift and keeps raw stop/price labels. This does not apply to hotels, which use `lang=es` against our own parser.
+- The flight scrape locale is `hl=en` with `locale="en-US"` for stable rendered evidence and the existing JSON `locale: "en"` contract. Currency comes from `curr=EUR`, independently of `hl`. Card parsing is owned by viajante and keeps raw stop/price labels. This does not apply to hotels, which use `lang=es` against our own parser.
 - `max_stops` is 0 or 1 per query; filtering follows each query's value. Flights stay one-way; `adults` and `cabin` are query fields (CLI `--adults` / `--cabin`). `ORIGIN-DEST:OUT:BACK` is sugar for two one-way queries (out then return), not a round-trip `tfs`.
 - The baggage buffer is an input (`--baggage-buffer`, default 70 EUR), not a constant. A non-zero buffer implies `needs_bag_verify`. Default `--sort ranked` selects `--top` by fare+buffer; `--sort fare` uses fare. The ranked total must be visible when a buffer was added. Callers must verify baggage on Google Flights before booking.
 - The low-cost carrier list is partial. Absence from it is not evidence that a fare includes a bag.
@@ -40,7 +40,7 @@
 - `--compare-cancellation` runs two sequential Booking scrapes (free cancellation on, then off) and joins stays by title+address. Do not parallelize. If one query fails, print both results and skip the join.
 - `lodging_kind` is observed card evidence (`entire_home` / `private_room` / `hotel` / `unknown`). If the card is silent, apartment/apartamento/casa in the title may infer `entire_home`. Do not infer `hotel` from the word hotel in the title. Do not claim cancellation, lodging kind, or unit counts when unknown.
 - Callers must verify the final total and cancellation terms on Booking.com before booking.
-- Other OTAs are not scrapers in this tree. After Booking, for 1–3 finalists, the trip-sift skill says to use the user's browser harness (Google the property; list official site, aggregators, and other hits as options, without preferring one). Unverified second opinion. Do not invent prices from snippets or write them into `--save` JSON.
+- Other OTAs are not scrapers in this tree. After Booking, for 1–3 finalists, the viajante skill says to use the user's browser harness (Google the property; list official site, aggregators, and other hits as options, without preferring one). Unverified second opinion. Do not invent prices from snippets or write them into `--save` JSON.
 
 ## Tests
 
@@ -60,8 +60,8 @@ uv run ruff check src tests
 
 ## Trip-planning search strategy
 
-When helping pick destinations (not a single named route/date), follow `.cursor/skills/trip-sift/SKILL.md` → **Destination triage**: shortlist by vibe and rough MAD price band, scrape fixed natural dates first, and only then expand ±1 day on 1–3 finalists. Do not brute-force full date matrices across a long destination list in one run.
+When helping pick destinations (not a single named route/date), follow `.cursor/skills/viajante/SKILL.md` → **Destination triage**: shortlist by vibe and rough MAD price band, scrape fixed natural dates first, and only then expand ±1 day on 1–3 finalists. Do not brute-force full date matrices across a long destination list in one run.
 
 ## Private-data boundary
 
-This tree is the public export. Do not add scraped caches, CSVs, personal trip scripts or routes, reservation data, browser session files, or paths from a private repository. Heuristic price *bands* in the trip-sift skill are allowed; live scrapes and personal trip JSON are not.
+This tree is the public export. Do not add scraped caches, CSVs, personal trip scripts or routes, reservation data, browser session files, or paths from a private repository. Heuristic price *bands* in the viajante skill are allowed; live scrapes and personal trip JSON are not.

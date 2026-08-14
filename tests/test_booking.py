@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import List, Sequence
 from urllib.parse import parse_qs, urlparse
 
-import trip_sift.booking as booking_module
-from trip_sift.booking import (
+import viajante.booking as booking_module
+from viajante.booking import (
     BOOKING_BLOCKED_RESOURCE_TYPES,
     CONSENT_SELECTORS,
     DISMISS_SELECTORS,
@@ -21,7 +21,7 @@ from trip_sift.booking import (
     HotelPage,
     build_applied_filters,
 )
-from trip_sift.models import HotelQuery
+from viajante.models import HotelQuery
 
 
 class FakeElement:

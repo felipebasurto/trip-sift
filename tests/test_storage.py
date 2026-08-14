@@ -8,39 +8,39 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from trip_sift.flights import write_report_atomic
-from trip_sift.models import SearchReport
-from trip_sift.storage import default_state_dir, write_json_atomic, write_text_atomic
+from viajante.flights import write_report_atomic
+from viajante.models import SearchReport
+from viajante.storage import default_state_dir, write_json_atomic, write_text_atomic
 
 
 class DefaultStateDirTests(unittest.TestCase):
-    def test_trip_sift_state_dir_wins(self) -> None:
+    def test_viajante_state_dir_wins(self) -> None:
         with patch.dict(
             os.environ,
             {
-                "TRIP_SIFT_STATE_DIR": "/custom/trip-sift",
+                "VIAJANTE_STATE_DIR": "/custom/viajante",
                 "XDG_STATE_HOME": "/xdg/state",
             },
             clear=False,
         ):
-            self.assertEqual(default_state_dir(), Path("/custom/trip-sift"))
+            self.assertEqual(default_state_dir(), Path("/custom/viajante"))
 
-    def test_xdg_state_home_when_no_trip_sift(self) -> None:
+    def test_xdg_state_home_when_no_viajante(self) -> None:
         env = os.environ.copy()
-        env.pop("TRIP_SIFT_STATE_DIR", None)
+        env.pop("VIAJANTE_STATE_DIR", None)
         env["XDG_STATE_HOME"] = "/xdg/state"
         with patch.dict(os.environ, env, clear=True):
-            self.assertEqual(default_state_dir(), Path("/xdg/state/trip-sift"))
+            self.assertEqual(default_state_dir(), Path("/xdg/state/viajante"))
 
     def test_default_home_local_state(self) -> None:
         env = os.environ.copy()
-        env.pop("TRIP_SIFT_STATE_DIR", None)
+        env.pop("VIAJANTE_STATE_DIR", None)
         env.pop("XDG_STATE_HOME", None)
         with patch.dict(os.environ, env, clear=True):
-            with patch("trip_sift.storage.Path.home", return_value=Path("/home/user")):
+            with patch("viajante.storage.Path.home", return_value=Path("/home/user")):
                 self.assertEqual(
                     default_state_dir(),
-                    Path("/home/user/.local/state/trip-sift"),
+                    Path("/home/user/.local/state/viajante"),
                 )
 
 

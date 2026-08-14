@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/trip-sift-hero.svg" alt="trip-sift local flight and hotel search" width="100%">
+  <img src="docs/assets/viajante-hero.svg" alt="viajante local flight and hotel search" width="100%">
 </p>
 
 <p align="center">
@@ -7,7 +7,9 @@
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-52636B">
 </p>
 
-Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. `trip-sift` drives a local Chromium over Google Flights and Booking.com, and hands back typed offers that keep the scraped text next to every parsed number. Query encoding and card parsing are owned by trip-sift. It is built for scripts and agents that need structured prices, not for browsing.
+Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. `viajante` drives a local Chromium over Google Flights and Booking.com, and hands back typed offers that keep the scraped text next to every parsed number. Query encoding and card parsing are owned by viajante. It is built for scripts and agents that need structured prices, not for browsing.
+
+The name is Spanish for the travelling salesman: shortlist routes, don't brute-force every combination.
 
 This is an unofficial project with no affiliation to Google or Booking.com. Either provider can change markup at any time, which may break parsing. Review the [Google Terms of Service](https://policies.google.com/terms), [Booking.com terms](https://www.booking.com/content/terms.html), and your own obligations before use.
 
@@ -20,12 +22,12 @@ uv sync
 uv run playwright install chromium
 ```
 
-After that, run the CLI with `uv run trip-sift`. The lockfile (`uv.lock`) pins the exact dependency graph used in CI. A plain `pip install -e .` still works if you prefer pip, but then you must install Chromium yourself and you lose the locked transitive versions.
+After that, run the CLI with `uv run viajante`. The lockfile (`uv.lock`) pins the exact dependency graph used in CI. A plain `pip install -e .` still works if you prefer pip, but then you must install Chromium yourself and you lose the locked transitive versions.
 
 ## Search flights
 
 ```bash
-uv run trip-sift flights MAD-BCN:2026-09-01
+uv run viajante flights MAD-BCN:2026-09-01
 ```
 
 ```text
@@ -40,7 +42,7 @@ One adult, one-way, economy. Up to eight offers per query, ordered by ranked tot
 ## Search hotels
 
 ```bash
-uv run trip-sift hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
+uv run viajante hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
 ```
 
 ```text
@@ -66,7 +68,7 @@ The output separates what you asked for (`Filters`), what Booking was actually t
 ## How it works
 
 <p align="center">
-  <img src="docs/assets/how-trip-sift-works.svg" alt="trip-sift data flow from user to typed results" width="100%">
+  <img src="docs/assets/how-viajante-works.svg" alt="viajante data flow from user to typed results" width="100%">
 </p>
 
 You or an agent pass a route and dates. The CLI validates the input before any browser starts, then paces the queries deliberately. A single local Chromium session does the scraping with images, media, and fonts blocked. Offers come back ranked, and consent cookies stay in your state directory rather than in this checkout.
@@ -74,11 +76,11 @@ You or an agent pass a route and dates. The CLI validates the input before any b
 ## Compare dates and save JSON
 
 ```bash
-uv run trip-sift flights \
+uv run viajante flights \
   MAD-BCN:2026-09-01,2026-09-02,2026-09-03 \
   --max-stops 0 \
   --top 5 \
-  --save results/search.trip-sift.json
+  --save results/search.viajante.json
 ```
 
 Each date is searched sequentially and printed as its own block. Progress goes to stderr so you can pipe the table on its own. Ten dates spend 40 to 54 seconds asleep between queries before any page even loads, which is deliberate.
@@ -164,7 +166,7 @@ A failed query replaces `raw_count`, `eligible_count`, and `offers` with `"error
 ```python
 from datetime import date
 
-from trip_sift import FlightQuery, search_flights
+from viajante import FlightQuery, search_flights
 
 report = search_flights(
     [
@@ -189,7 +191,7 @@ Hotels use the same report pattern:
 ```python
 from datetime import date
 
-from trip_sift import HotelQuery, search_hotels
+from viajante import HotelQuery, search_hotels
 
 report = search_hotels(
     [
@@ -224,9 +226,9 @@ Both run a live search with the same Chromium and the same pacing as the CLI.
 
 Playwright consent cookies persist as `pw_state_google.json` and `pw_state_booking.json` at the first of these that applies:
 
-1. `$TRIP_SIFT_STATE_DIR/`
-2. `$XDG_STATE_HOME/trip-sift/`
-3. `~/.local/state/trip-sift/`
+1. `$VIAJANTE_STATE_DIR/`
+2. `$XDG_STATE_HOME/viajante/`
+3. `~/.local/state/viajante/`
 
 Delete the affected provider file if consent or scraping breaks. It is recreated on the next run.
 
@@ -241,4 +243,4 @@ Fully offline. They never launch Chromium and never touch the network. `tests/te
 
 ## Privacy boundary
 
-This tree is the public export of a private trip-planning repo. Do not commit scrapes, personal routes, or browser session files. Saved results (`results/`, `*.trip-sift.json`), logs, and Playwright artifacts are gitignored, and consent cookies live outside the checkout entirely. Before pushing a fork, check `git status --short` and `git ls-files`.
+This tree is the public export of a private trip-planning repo. Do not commit scrapes, personal routes, or browser session files. Saved results (`results/`, `*.viajante.json`), logs, and Playwright artifacts are gitignored, and consent cookies live outside the checkout entirely. Before pushing a fork, check `git status --short` and `git ls-files`.

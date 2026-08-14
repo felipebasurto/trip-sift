@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from trip_sift.models import CancellationEvidence, LodgingKind, PropertyTypeEvidence
+from viajante.models import CancellationEvidence, LodgingKind, PropertyTypeEvidence
 
 
 def parse_price_eur(price_text: str | None) -> float | None:

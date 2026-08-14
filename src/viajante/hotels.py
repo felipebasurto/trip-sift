@@ -8,14 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional, Protocol, Sequence, Tuple
 
-from trip_sift.booking import (
+from viajante.booking import (
     BookingHotelsSource,
     BookingResultsTimeout,
     HotelPage,
     RawHotelCard,
     build_applied_filters,
 )
-from trip_sift.models import (
+from viajante.models import (
     AppliedHotelFilters,
     CancellationEvidence,
     HotelOffer,
@@ -28,14 +28,14 @@ from trip_sift.models import (
     SearchError,
     SearchErrorCode,
 )
-from trip_sift.orchestration import (
+from viajante.orchestration import (
     MAX_ATTEMPTS,
     NON_RETRIABLE_CODES,
     classify_failure,
     inter_query_delay_seconds,
     retry_backoff_seconds,
 )
-from trip_sift.parsers import (
+from viajante.parsers import (
     parse_cancellation_evidence,
     parse_lodging_kind,
     parse_price_eur,
@@ -43,7 +43,7 @@ from trip_sift.parsers import (
     parse_rating,
     parse_unit_hints,
 )
-from trip_sift.storage import default_state_dir, write_json_atomic
+from viajante.storage import default_state_dir, write_json_atomic
 
 
 class _HotelSource(Protocol):

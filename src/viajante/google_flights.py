@@ -10,9 +10,9 @@ from urllib.parse import urlencode
 
 from selectolax.lexbor import LexborHTMLParser
 
-from trip_sift.browser import BrowserSessionConfig, ChromiumSession
-from trip_sift.models import FlightQuery
-from trip_sift.tfs import encode_tfs
+from viajante.browser import BrowserSessionConfig, ChromiumSession
+from viajante.models import FlightQuery
+from viajante.tfs import encode_tfs
 
 SEARCH_URL = "https://www.google.com/travel/flights"
 STATE_FILENAME = "pw_state_google.json"

@@ -1,9 +1,9 @@
 ---
-name: trip-sift
-description: Search Google Flights and Booking.com locally for trip planning. Use when the user asks about flight prices, route/date comparisons, hotels, accommodation, or a trip that may need both.
+name: viajante
+description: Search Google Flights and Booking.com locally for trip planning with viajante. Use when the user asks about flight prices, route/date comparisons, hotels, accommodation, or a trip that may need both.
 ---
 
-# trip-sift
+# viajante
 
 Local flight and hotel search. Prices in EUR. Flights are one-way; defaults are one adult and economy. Hotel prices are totals for the full stay.
 
@@ -12,16 +12,16 @@ Local flight and hotel search. Prices in EUR. Flights are one-way; defaults are 
 Prefer the checkout CLI:
 
 ```bash
-uv run trip-sift ...
+uv run viajante ...
 ```
 
-After `uv sync` and `uv run playwright install chromium`, the entry point is available. Do not use a global `trip-sift` binary from another checkout.
+After `uv sync` and `uv run playwright install chromium`, the entry point is available. Do not use a global `viajante` binary from another checkout.
 
 ## Commands
 
 ```bash
-uv run trip-sift flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare}] [--save FILE]
-uv run trip-sift hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
+uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare}] [--save FILE]
+uv run viajante hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
 ```
 
 Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one route. `MAD-OPO:2026-10-09:2026-10-12` is sugar for outbound + return as two one-way queries. You can still pass a return leg as a second route.
@@ -33,10 +33,10 @@ Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one rou
 uv run python -m unittest discover -s tests -v
 
 # One live flight query
-uv run trip-sift flights MAD-BCN:2026-12-04 --top 3
+uv run viajante flights MAD-BCN:2026-12-04 --top 3
 
 # One live hotel query
-uv run trip-sift hotels Prague 2026-12-04 2026-12-07 --top 3
+uv run viajante hotels Prague 2026-12-04 2026-12-07 --top 3
 ```
 
 ## Hotels: ask once
@@ -54,7 +54,7 @@ Do not run a hotel search without confirmation when lodging intent is unclear.
 ## Multi-leg trips
 
 ```bash
-uv run trip-sift flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
+uv run viajante flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
 ```
 
 Each route and each comma-separated date is a separate sequential query. `--max-stops` applies to every leg in that invocation. Progress lines go to stderr as `[i/N] ORIGIN -> DEST DATE`.
@@ -86,7 +86,7 @@ Use bands to **exclude or deprioritize**, not to invent prices in the reply. Aft
 
 ## `--save`
 
-Use `--save results/<name>.trip-sift.json` for date matrices, round trips, or downstream parsing. Skip it for a single price answer in chat. Paths under `results/` and `*.trip-sift.json` are gitignored.
+Use `--save results/<name>.viajante.json` for date matrices, round trips, or downstream parsing. Skip it for a single price answer in chat. Paths under `results/` and `*.viajante.json` are gitignored.
 
 Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hotel reports also carry `provider`, `price_basis`, `applied`, `eligible_count`, and evidence enums. Do not invent keys.
 
@@ -115,7 +115,7 @@ Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hote
 
 ## Second opinion in the browser
 
-trip-sift does not scrape Kayak, Lastminute, or hotel official sites. After Booking, for **1–3 finalists** (the stays you would actually book, or the ones the user names), use the user's browser harness (Cursor browser / computer-use / Playwright MCP — whatever this session has). Skip this step if there is no browser tool.
+viajante does not scrape Kayak, Lastminute, or hotel official sites. After Booking, for **1–3 finalists** (the stays you would actually book, or the ones the user names), use the user's browser harness (Cursor browser / computer-use / Playwright MCP — whatever this session has). Skip this step if there is no browser tool.
 
 1. Google the property title + city + check-in + check-out + adult count.
 2. List whatever useful options show up: official site, Kayak, Lastminute, chain site, other aggregators. Do not rank or prefer one source over another.
@@ -138,7 +138,7 @@ Exit codes: `0` all queries finished, `1` bad input, `2` all queries failed, `3`
 
 ## Browser state
 
-Stored outside the repo at `TRIP_SIFT_STATE_DIR` or the XDG state dir. Delete `pw_state_google.json` or `pw_state_booking.json` if that provider's consent flow breaks. Booking dumps `booking-last-failure.html` next to the session file when cards never appear.
+Stored outside the repo at `VIAJANTE_STATE_DIR` or the XDG state dir. Delete `pw_state_google.json` or `pw_state_booking.json` if that provider's consent flow breaks. Booking dumps `booking-last-failure.html` next to the session file when cards never appear.
 
 ## Tests
 
