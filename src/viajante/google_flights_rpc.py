@@ -33,6 +33,10 @@ class EmptyShoppingResults(Exception):
     """Shopping RPC returned itinerary slots with no priced offers."""
 
 
+class ShoppingRejected(Exception):
+    """Shopping RPC rejected the query (unknown airport or invalid request)."""
+
+
 @dataclass(frozen=True)
 class CompactFlightCard:
     airline: Optional[str]
@@ -41,6 +45,8 @@ class CompactFlightCard:
     duration: Optional[str]
     stops: Optional[str]
     price: Optional[str]
+    layover_city: Optional[str] = None
+    layover_hours: Optional[float] = None
 
 
 def build_shopping_inner(query: FlightQuery, token: Optional[str] = None) -> list[Any]:
@@ -119,6 +125,10 @@ SHOPPING_POST_HEADERS = {
 
 
 def parse_shopping_body(text: str) -> tuple[CompactFlightCard, ...]:
+    if _is_shopping_rejected(text):
+        raise ShoppingRejected(
+            "Google Flights rejected this route or date (unknown airport or invalid query)."
+        )
     payload = _first_wrb_data(text)
     if payload is None:
         raise CompactParseMiss("no wrb.fr shopping payload")
@@ -213,11 +223,11 @@ def _iter_group(group: object) -> list[Any]:
     if not isinstance(group, list) or not group:
         return []
     first = group[0]
-    if isinstance(first, list) and first and _looks_like_itinerary(first[0]):
-        return [item for item in first if _looks_like_itinerary(item)]
-    if _looks_like_itinerary(first):
-        return [item for item in group if _looks_like_itinerary(item)]
-    return []
+    if isinstance(first, list) and first:
+        nested = [item for item in first if _looks_like_itinerary(item)]
+        if nested:
+            return nested
+    return [item for item in group if _looks_like_itinerary(item)]
 
 
 def _looks_like_itinerary(item: object) -> bool:
@@ -229,13 +239,7 @@ def _looks_like_itinerary(item: object) -> bool:
     airlines = flight[1]
     if not isinstance(airlines, list) or not airlines or not isinstance(airlines[0], str):
         return False
-    departure = flight[5]
-    if not (
-        isinstance(departure, list)
-        and len(departure) >= 2
-        and isinstance(departure[0], int)
-        and isinstance(departure[1], int)
-    ):
+    if _format_clock(flight[5]) is None:
         return False
     return isinstance(flight[9], int)
 
@@ -246,6 +250,7 @@ def _itinerary_to_card(item: list[Any]) -> Optional[CompactFlightCard]:
     price = _price_text(item[1])
     if price is None:
         return None
+    layover_city, layover_hours = _layover_from_flight(flight)
     return CompactFlightCard(
         airline=", ".join(airlines) or None,
         departure=_format_clock(flight[5]) or _clock_from_leg(flight[2], 0, 8),
@@ -253,6 +258,8 @@ def _itinerary_to_card(item: list[Any]) -> Optional[CompactFlightCard]:
         duration=_format_duration_minutes(flight[9]),
         stops=_format_stops(flight[2]),
         price=price,
+        layover_city=layover_city,
+        layover_hours=layover_hours,
     )
 
 
@@ -283,18 +290,41 @@ def _clock_from_leg(legs: object, index: int, field: int) -> Optional[str]:
 
 
 def _format_clock(value: object) -> Optional[str]:
-    if not isinstance(value, list) or len(value) < 2:
+    if not isinstance(value, list) or not value:
         return None
-    hour, minute = value[0], value[1]
+    hour = value[0]
+    minute = value[1] if len(value) > 1 else 0
     if not isinstance(hour, int) or not isinstance(minute, int):
         return None
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         return None
-    suffix = "AM" if hour < 12 else "PM"
-    hour12 = hour % 12
-    if hour12 == 0:
-        hour12 = 12
-    return f"{hour12}:{minute:02d} {suffix}"
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _layover_from_flight(flight: list[Any]) -> tuple[Optional[str], Optional[float]]:
+    block = flight[13] if len(flight) > 13 else None
+    if isinstance(block, list) and block:
+        best_city: Optional[str] = None
+        best_hours: Optional[float] = None
+        for entry in block:
+            if not isinstance(entry, list) or not entry or not isinstance(entry[0], int):
+                continue
+            hours = entry[0] / 60.0
+            city: Optional[str] = None
+            if len(entry) > 5 and isinstance(entry[5], str) and entry[5]:
+                city = entry[5]
+            elif len(entry) > 1 and isinstance(entry[1], str) and entry[1]:
+                city = entry[1]
+            if best_hours is None or hours > best_hours:
+                best_hours = hours
+                best_city = city
+        if best_hours is not None:
+            return best_city, best_hours
+    return None, None
+
+
+def _is_shopping_rejected(text: str) -> bool:
+    return "travel.frontend.flights.ErrorResponse" in text
 
 
 def _format_duration_minutes(minutes: int) -> str:

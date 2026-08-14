@@ -20,7 +20,7 @@ After `uv sync` and `uv run playwright install chromium`, the entry point is ava
 ## Commands
 
 ```bash
-uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare}] [--fetch {auto,sweep,detail}] [--save FILE]
+uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare}] [--fetch {auto,sweep,detail}] [--max-layover HOURS] [--save FILE]
 uv run viajante hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
 ```
 
@@ -66,7 +66,7 @@ Each route and each comma-separated date is a separate sequential query. `--max-
 
 - **sweep**: one Chrome TLS session. POST the owned shopping RPC, parse `wrb.fr` itineraries, fall back to the owned HTML card parser only if that misses. Fast shortlist. No Chromium. No 4.5s inter-query delay.
 - **detail**: existing Playwright path. Max evidence (times, bags, full card set). Current 4.5s+jitter pacing.
-- **auto** (default): sweep when the invocation has 3+ flight queries, detail for 1–2. If sweep returns empty, markup drift, or a block, fall back to detail once (`fetch_backend: sweep_then_detail` on stderr and in `--save` JSON).
+- **auto** (default): sweep when the invocation has 3+ flight queries, detail for 1–2. If sweep returns empty or a block, fall back to detail once for those legs only (`fetch_backend: sweep_then_detail` on stderr and in `--save` JSON). Unknown airports / shopping rejects and compact markup misses fail immediately without Chromium.
 
 Use sweep to shortlist a 10–20 route batch. Use `--fetch detail` (or a second invocation) when the user asks for times, bags, or the full card set. Do not mix backends across legs of one report unless that fallback fired.
 

@@ -21,6 +21,7 @@ from viajante.flights import (
 from viajante.google_flights import (
     GoogleFlightsBlocked,
     GoogleFlightsMarkupError,
+    GoogleFlightsRejected,
     NoFlightsFound,
     RawFlightCard,
 )
@@ -50,6 +51,8 @@ def card(
     price: str = "99 €",
     duration: str = "1 h",
     stops: str = "Nonstop",
+    layover_city: str | None = None,
+    layover_hours: float | None = None,
 ) -> RawFlightCard:
     return RawFlightCard(
         airline=airline,
@@ -58,6 +61,8 @@ def card(
         price=price,
         duration=duration,
         stops=stops,
+        layover_city=layover_city,
+        layover_hours=layover_hours,
     )
 
 
@@ -121,6 +126,11 @@ class FailureClassificationTests(unittest.TestCase):
             error.message,
             "Google Flights returned no flights for this route and date.",
         )
+
+    def test_rejected_shopping_query_is_no_results(self) -> None:
+        error = classify_failure(GoogleFlightsRejected("unknown airport"))
+        self.assertEqual(error.code, SearchErrorCode.NO_RESULTS)
+        self.assertIn("rejected", error.message.casefold())
 
     def test_missing_chromium_is_reported_as_browser_unavailable(self) -> None:
         error = classify_failure(
@@ -467,6 +477,94 @@ class FlightsOrchestrationTests(unittest.TestCase):
         self.assertTrue(any("falling back to detail" in line for line in lines))
         self.assertTrue(sweep.closed)
         self.assertTrue(detail.closed)
+
+    def test_sweep_fallback_does_not_rerun_successful_legs(self) -> None:
+        ok = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
+        empty = FlightQuery("MAD", "ICN", date(2026, 9, 22), max_stops=1)
+        sweep = FakeSource(
+            {
+                ("MAD", "BCN", "2026-09-01", 1): (card(airline="Vueling"),),
+                ("MAD", "ICN", "2026-09-22", 1): NoFlightsFound(),
+            }
+        )
+        detail = FakeSource({("MAD", "ICN", "2026-09-22", 1): (card(airline="Korean Air"),)})
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=sweep):
+            with patch("viajante.flights.GoogleFlightsSource", return_value=detail) as detail_ctor:
+                report = search_flights((ok, empty), top=1, fetch="sweep")
+        self.assertEqual(report.fetch_backend, "sweep_then_detail")
+        self.assertEqual(report.queries[0].offers[0].airline, "Vueling")
+        self.assertEqual(report.queries[1].offers[0].airline, "Korean Air")
+        self.assertEqual(detail.fetch_calls, 1)
+        detail_ctor.assert_called_once()
+
+    def test_rejected_sweep_query_does_not_open_chromium(self) -> None:
+        query = FlightQuery("XXX", "YYY", date(2026, 9, 1), max_stops=1)
+        sweep = FakeSource(
+            {("XXX", "YYY", "2026-09-01", 1): GoogleFlightsRejected("unknown airport")}
+        )
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=sweep):
+            with patch("viajante.flights.GoogleFlightsSource") as detail:
+                report = search_flights((query,), top=1, fetch="sweep")
+        detail.assert_not_called()
+        self.assertEqual(report.fetch_backend, "sweep")
+        self.assertIsInstance(report.queries[0], QueryFailure)
+        self.assertEqual(report.queries[0].error.code, SearchErrorCode.NO_RESULTS)
+
+    def test_markup_miss_after_sweep_does_not_open_chromium(self) -> None:
+        query = FlightQuery("XXX", "YYY", date(2026, 9, 1), max_stops=1)
+        sweep = FakeSource(
+            {("XXX", "YYY", "2026-09-01", 1): GoogleFlightsMarkupError("no results grid")}
+        )
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=sweep):
+            with patch("viajante.flights.GoogleFlightsSource") as detail:
+                report = search_flights((query,), top=1, fetch="sweep")
+        detail.assert_not_called()
+        self.assertEqual(report.fetch_backend, "sweep")
+        self.assertEqual(report.queries[0].error.code, SearchErrorCode.FETCH_FAILED)
+
+    def test_twelve_and_twenty_four_hour_clocks_dedupe(self) -> None:
+        ampm = _normalize_offer(
+            card(
+                airline="Iberia",
+                departure="1:40 PM",
+                arrival="9:00 AM",
+                price="74 €",
+                duration="20 hr 20 min",
+                stops="1 stop",
+            ),
+            max_stops=1,
+        )
+        hhmm = _normalize_offer(
+            card(
+                airline="Iberia",
+                departure="13:40",
+                arrival="09:00",
+                price="74 €",
+                duration="20 hr 20 min",
+                stops="1 stop",
+            ),
+            max_stops=1,
+        )
+        assert ampm is not None and hhmm is not None
+        ranked = _rank_offers((ampm, hhmm), top=5)
+        self.assertEqual(len(ranked), 1)
+        self.assertEqual(ranked[0].departure, "13:40")
+        self.assertEqual(ranked[0].arrival, "09:00")
+
+    def test_max_layover_drops_overnight_connections(self) -> None:
+        overnight = card(
+            airline="Tap Air Portugal",
+            departure="13:40",
+            arrival="09:00",
+            price="74 €",
+            duration="20 hr 20 min",
+            stops="1 stop",
+            layover_city="Lisbon",
+            layover_hours=18.0,
+        )
+        self.assertIsNone(_normalize_offer(overnight, max_stops=1, max_layover_hours=10))
+        short = card(airline="Air Europa", departure="10:35", arrival="10:50", price="58 €")
+        self.assertIsNotNone(_normalize_offer(short, max_stops=1, max_layover_hours=10))
 
 
 class FetchModeTests(unittest.TestCase):

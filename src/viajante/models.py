@@ -59,6 +59,8 @@ class FlightOffer:
     stops_count: Optional[int]
     baggage_buffer_eur: int
     needs_bag_verify: bool
+    layover_city: Optional[str] = None
+    layover_hours: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.price_eur <= 0:
@@ -79,6 +81,8 @@ class FlightOffer:
             "duration_hours": self.duration_hours,
             "stops": self.stops,
             "stops_count": self.stops_count,
+            "layover_city": self.layover_city,
+            "layover_hours": self.layover_hours,
             "baggage_buffer_eur": self.baggage_buffer_eur,
             "needs_bag_verify": self.needs_bag_verify,
         }

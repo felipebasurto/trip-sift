@@ -21,6 +21,7 @@ from viajante.google_flights_rpc import (
     SHOPPING_POST_HEADERS,
     CompactParseMiss,
     EmptyShoppingResults,
+    ShoppingRejected,
     build_shopping_request,
     parse_shopping_body,
 )
@@ -91,6 +92,8 @@ class RawFlightCard:
     duration: Optional[str]
     stops: Optional[str]
     price: Optional[str]
+    layover_city: Optional[str] = None
+    layover_hours: Optional[float] = None
 
 
 class NoFlightsFound(Exception):
@@ -110,6 +113,10 @@ class GoogleFlightsMarkupError(RuntimeError):
 
 class GoogleFlightsBlocked(RuntimeError):
     """HTTP sweep hit a consent wall, captcha, or traffic block."""
+
+
+class GoogleFlightsRejected(RuntimeError):
+    """Shopping RPC rejected the query (unknown airport or invalid request)."""
 
 
 def build_search_params(
@@ -392,7 +399,7 @@ class GoogleFlightsHttpSource:
         client = self._ensure_client()
         try:
             return self._fetch_compact(client, query)
-        except (GoogleFlightsBlocked, NoFlightsFound):
+        except (GoogleFlightsBlocked, NoFlightsFound, GoogleFlightsRejected):
             raise
         except CompactParseMiss:
             pass
@@ -442,6 +449,8 @@ class GoogleFlightsHttpSource:
             compact = parse_shopping_body(response.text)
         except EmptyShoppingResults as exc:
             raise NoFlightsFound() from exc
+        except ShoppingRejected as exc:
+            raise GoogleFlightsRejected(str(exc)) from exc
         return tuple(
             RawFlightCard(
                 airline=card.airline,
@@ -450,6 +459,8 @@ class GoogleFlightsHttpSource:
                 duration=card.duration,
                 stops=card.stops,
                 price=card.price,
+                layover_city=card.layover_city,
+                layover_hours=card.layover_hours,
             )
             for card in compact
         )

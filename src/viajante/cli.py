@@ -38,6 +38,7 @@ Examples:
   viajante flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
   viajante flights MAD-BCN:2026-09-01,2026-09-02 --top 5 --sort fare --save results/search.json
   viajante flights MAD-BCN:2026-09-01 --fetch sweep
+  viajante flights MAD-OPO:2026-10-09 --fetch sweep --max-layover 8
   viajante flights MAD-BCN:2026-09-01 --fetch detail
 """
 
@@ -58,6 +59,8 @@ def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
         raise ValueError("--baggage-buffer must not be negative")
     if args.adults < 1:
         raise ValueError("--adults must be at least 1")
+    if args.max_layover is not None and args.max_layover < 0:
+        raise ValueError("--max-layover must not be negative")
     queries = parse_route_specs(
         args.routes,
         max_stops=args.max_stops,
@@ -77,6 +80,21 @@ def _format_stops(stops_count: Optional[int]) -> str:
     if stops_count == 0:
         return "direct"
     return f"{stops_count} stop" + ("s" if stops_count > 1 else "")
+
+
+def _format_layover_hours(hours: float) -> str:
+    if float(hours).is_integer():
+        return f"{int(hours)}h"
+    return f"{hours:.1f}h"
+
+
+def _format_stops_with_layover(offer: FlightOffer) -> str:
+    label = _format_stops(offer.stops_count)
+    if offer.layover_city:
+        label = f"{label} {offer.layover_city}"
+    if offer.layover_hours is not None:
+        label = f"{label} {_format_layover_hours(offer.layover_hours)}"
+    return label
 
 
 def _format_airline(airline: Optional[str]) -> str:
@@ -191,7 +209,7 @@ def _print_report(report, *, sort: FlightSort = "ranked") -> None:
                 times = f"{_format_clock(offer.departure)} -> {_format_clock(offer.arrival)}"
                 print(
                     f"  {_format_ranking_columns(offer)}  {offer.duration or '?':<12} "
-                    f"{_format_stops(offer.stops_count):<7} {times:<18} "
+                    f"{_format_stops_with_layover(offer):<16} {times:<18} "
                     f"{_format_airline(offer.airline)}"
                 )
             print(
@@ -409,6 +427,7 @@ def _run_flights(args: argparse.Namespace) -> int:
         progress=lambda line: print(line, file=sys.stderr),
         sort=args.sort,
         fetch=args.fetch,
+        max_layover_hours=args.max_layover,
     )
     _print_report(report, sort=args.sort)
 
@@ -511,6 +530,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "detail is the Playwright scrape. "
             "auto uses sweep for 3+ queries and detail for 1-2 (default auto)"
         ),
+    )
+    flights.add_argument(
+        "--max-layover",
+        type=float,
+        default=None,
+        metavar="HOURS",
+        dest="max_layover",
+        help="Drop 1-stop offers whose layover exceeds HOURS (sweep and detail)",
     )
     flights.add_argument(
         "--save",

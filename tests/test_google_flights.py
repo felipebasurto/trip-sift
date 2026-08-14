@@ -11,6 +11,7 @@ from viajante.google_flights import (
     GoogleFlightsBlocked,
     GoogleFlightsHttpSource,
     GoogleFlightsMarkupError,
+    GoogleFlightsRejected,
     NoFlightsFound,
     SweepHttpResponse,
     build_search_params,
@@ -23,6 +24,7 @@ from viajante.google_flights import (
 from viajante.google_flights_rpc import (
     CompactParseMiss,
     EmptyShoppingResults,
+    ShoppingRejected,
     build_shopping_inner,
     build_shopping_request,
     parse_shopping_body,
@@ -419,8 +421,8 @@ class ShoppingRpcTests(unittest.TestCase):
         cards = parse_shopping_body(body)
         self.assertEqual(len(cards), 1)
         self.assertEqual(cards[0].airline, "Air Europa")
-        self.assertEqual(cards[0].departure, "5:05 PM")
-        self.assertEqual(cards[0].arrival, "9:10 PM")
+        self.assertEqual(cards[0].departure, "17:05")
+        self.assertEqual(cards[0].arrival, "21:10")
         self.assertEqual(cards[0].duration, "4 hr 5 min")
         self.assertEqual(cards[0].stops, "1 stop")
         self.assertEqual(cards[0].price, "€83")
@@ -441,16 +443,16 @@ class ShoppingRpcTests(unittest.TestCase):
         last[10] = [16, 20]
         item[0][2] = [first, last]
         card = parse_shopping_body(_compact_body(item))[0]
-        self.assertEqual(card.departure, "1:40 PM")
-        self.assertEqual(card.arrival, "4:20 PM")
+        self.assertEqual(card.departure, "13:40")
+        self.assertEqual(card.arrival, "16:20")
 
     def test_midnight_and_noon_clocks(self) -> None:
         body = _compact_body(
             _itinerary(dep=(0, 10), arr=(12, 0), minutes=60, price=40, legs=1),
         )
         card = parse_shopping_body(body)[0]
-        self.assertEqual(card.departure, "12:10 AM")
-        self.assertEqual(card.arrival, "12:00 PM")
+        self.assertEqual(card.departure, "00:10")
+        self.assertEqual(card.arrival, "12:00")
         self.assertEqual(card.duration, "1 hr")
         self.assertEqual(card.stops, "Nonstop")
 
@@ -493,6 +495,445 @@ class ShoppingRpcTests(unittest.TestCase):
         source = GoogleFlightsHttpSource(client=client)
         with self.assertRaises(GoogleFlightsBlocked):
             source.fetch(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1))
+        self.assertEqual(client.gets, [])
+
+
+def _live_leg(
+    *,
+    origin: str,
+    origin_name: str,
+    dest: str,
+    dest_name: str,
+    dep: list[int],
+    arr: list[int],
+    minutes: int,
+    dep_date: list[int],
+    arr_date: list[int],
+    code: str = "TP",
+    number: str = "1013",
+    airline: str = "Tap Air Portugal",
+    operated_by: str | None = None,
+    dest_day_offset: int | None = None,
+    arr_day_offset: int | None = None,
+) -> list[object]:
+    # Live shopping legs are ~33 slots; clocks may omit a zero minute.
+    return [
+        None,
+        None,
+        operated_by,
+        origin,
+        origin_name,
+        dest_name,
+        dest,
+        dest_day_offset,
+        dep,
+        arr_day_offset,
+        arr,
+        minutes,
+        [],
+        1,
+        "28 in",
+        None,
+        1,
+        "Airbus A321neo",
+        None,
+        False,
+        dep_date,
+        arr_date,
+        [code, number, None, airline],
+        None,
+        None,
+        1,
+        None,
+        None,
+        None,
+        None,
+        "28 inches",
+        54000,
+        1,
+    ]
+
+
+def _live_flight(
+    *,
+    code: str,
+    airline: str,
+    legs: list[object],
+    origin: str,
+    dest: str,
+    dep_date: list[int],
+    dep: list[int],
+    arr_date: list[int],
+    arr: list[int],
+    minutes: int,
+    stops: int | None = None,
+    layover: list[object] | None = None,
+) -> list[object]:
+    flight: list[object] = [None] * 25
+    flight[0] = code
+    flight[1] = [airline]
+    flight[2] = legs
+    flight[3] = origin
+    flight[4] = dep_date
+    flight[5] = dep
+    flight[6] = dest
+    flight[7] = arr_date
+    flight[8] = arr
+    flight[9] = minutes
+    flight[10] = stops
+    flight[12] = False
+    flight[13] = layover
+    return flight
+
+
+def _priced(flight: list[object], price: int) -> list[object]:
+    return [flight, [[None, price], "tok"]]
+
+
+def _tap_long_layover() -> list[object]:
+    dep_date = [2026, 10, 9]
+    arr_date = [2026, 10, 10]
+    legs = [
+        _live_leg(
+            origin="MAD",
+            origin_name="Adolfo Suárez Madrid-Barajas Airport",
+            dest="LIS",
+            dest_name="Humberto Delgado Airport",
+            dep=[13, 40],
+            arr=[14, 5],
+            minutes=85,
+            dep_date=dep_date,
+            arr_date=dep_date,
+            number="1013",
+        ),
+        _live_leg(
+            origin="LIS",
+            origin_name="Humberto Delgado Airport",
+            dest="OPO",
+            dest_name="Francisco Sá Carneiro Airport",
+            dep=[8, 5],
+            arr=[9],
+            minutes=55,
+            dep_date=arr_date,
+            arr_date=arr_date,
+            number="1922",
+            dest_day_offset=1,
+        ),
+    ]
+    return _priced(
+        _live_flight(
+            code="TP",
+            airline="Tap Air Portugal",
+            legs=legs,
+            origin="MAD",
+            dest="OPO",
+            dep_date=dep_date,
+            dep=[13, 40],
+            arr_date=arr_date,
+            arr=[9],
+            minutes=1220,
+            stops=1,
+            layover=[
+                [
+                    1080,
+                    "LIS",
+                    "LIS",
+                    None,
+                    "Humberto Delgado Airport",
+                    "Lisbon",
+                    "Humberto Delgado Airport",
+                    "Lisbon",
+                ]
+            ],
+        ),
+        74,
+    )
+
+
+def _iberia_late_nonstop() -> list[object]:
+    day = [2026, 9, 15]
+    legs = [
+        _live_leg(
+            origin="MAD",
+            origin_name="Adolfo Suárez Madrid-Barajas Airport",
+            dest="PMI",
+            dest_name="Palma de Mallorca Airport",
+            dep=[23, 10],
+            arr=[0, 30],
+            minutes=80,
+            dep_date=day,
+            arr_date=[2026, 9, 16],
+            code="I2",
+            number="3915",
+            airline="Iberia Express",
+            dest_day_offset=None,
+            arr_day_offset=1,
+        )
+    ]
+    return _priced(
+        _live_flight(
+            code="I2",
+            airline="Iberia Express",
+            legs=legs,
+            origin="MAD",
+            dest="PMI",
+            dep_date=day,
+            dep=[23, 10],
+            arr_date=[2026, 9, 16],
+            arr=[0, 30],
+            minutes=80,
+        ),
+        88,
+    )
+
+
+def _iberia_hour_only_arrival() -> list[object]:
+    day = [2026, 10, 9]
+    legs = [
+        _live_leg(
+            origin="MAD",
+            origin_name="Adolfo Suárez Madrid-Barajas Airport",
+            dest="OPO",
+            dest_name="Francisco Sá Carneiro Airport",
+            dep=[19, 40],
+            arr=[20],
+            minutes=80,
+            dep_date=day,
+            arr_date=day,
+            code="IB",
+            number="1153",
+            airline="Iberia",
+            operated_by="Air Nostrum for Iberia",
+        )
+    ]
+    return _priced(
+        _live_flight(
+            code="IB",
+            airline="Iberia",
+            legs=legs,
+            origin="MAD",
+            dest="OPO",
+            dep_date=day,
+            dep=[19, 40],
+            arr_date=day,
+            arr=[20],
+            minutes=80,
+        ),
+        95,
+    )
+
+
+def _longhaul_cz_hour_only_dep() -> list[object]:
+    legs = [
+        _live_leg(
+            origin="MAD",
+            origin_name="Adolfo Suárez Madrid-Barajas Airport",
+            dest="CAN",
+            dest_name="Guangzhou Baiyun International Airport",
+            dep=[21],
+            arr=[16, 10],
+            minutes=790,
+            dep_date=[2026, 9, 22],
+            arr_date=[2026, 9, 23],
+            code="CZ",
+            number="378",
+            airline="China Southern",
+            arr_day_offset=1,
+        ),
+        _live_leg(
+            origin="CAN",
+            origin_name="Guangzhou Baiyun International Airport",
+            dest="ICN",
+            dest_name="Incheon International Airport",
+            dep=[17, 20],
+            arr=[21, 50],
+            minutes=210,
+            dep_date=[2026, 9, 23],
+            arr_date=[2026, 9, 23],
+            code="CZ",
+            number="339",
+            airline="China Southern",
+            dest_day_offset=1,
+        ),
+    ]
+    return _priced(
+        _live_flight(
+            code="CZ",
+            airline="China Southern",
+            legs=legs,
+            origin="MAD",
+            dest="ICN",
+            dep_date=[2026, 9, 22],
+            dep=[21],
+            arr_date=[2026, 9, 23],
+            arr=[21, 50],
+            minutes=1070,
+            stops=1,
+            layover=[
+                [
+                    70,
+                    "CAN",
+                    "CAN",
+                    None,
+                    "Guangzhou Baiyun International Airport",
+                    "Guangzhou",
+                    "Guangzhou Baiyun International Airport",
+                    "Guangzhou",
+                ]
+            ],
+        ),
+        314,
+    )
+
+
+def _longhaul_etihad() -> list[object]:
+    legs = [
+        _live_leg(
+            origin="MAD",
+            origin_name="Adolfo Suárez Madrid-Barajas Airport",
+            dest="AUH",
+            dest_name="Zayed International Airport",
+            dep=[10, 45],
+            arr=[19, 40],
+            minutes=415,
+            dep_date=[2026, 9, 22],
+            arr_date=[2026, 9, 22],
+            code="EY",
+            number="102",
+            airline="Etihad",
+        ),
+        _live_leg(
+            origin="AUH",
+            origin_name="Zayed International Airport",
+            dest="ICN",
+            dest_name="Incheon International Airport",
+            dep=[21, 15],
+            arr=[10, 55],
+            minutes=520,
+            dep_date=[2026, 9, 22],
+            arr_date=[2026, 9, 23],
+            code="EY",
+            number="822",
+            airline="Etihad",
+            arr_day_offset=1,
+        ),
+    ]
+    return _priced(
+        _live_flight(
+            code="EY",
+            airline="Etihad",
+            legs=legs,
+            origin="MAD",
+            dest="ICN",
+            dep_date=[2026, 9, 22],
+            dep=[10, 45],
+            arr_date=[2026, 9, 23],
+            arr=[10, 55],
+            minutes=1030,
+            stops=1,
+            layover=[
+                [
+                    95,
+                    "AUH",
+                    "AUH",
+                    None,
+                    "Zayed International Airport",
+                    "Abu Dhabi",
+                    "Zayed International Airport",
+                    "Abu Dhabi",
+                ]
+            ],
+        ),
+        420,
+    )
+
+
+def _error_response_body() -> str:
+    wrb = [
+        [
+            "wrb.fr",
+            None,
+            None,
+            None,
+            None,
+            [
+                3,
+                None,
+                [
+                    [
+                        "type.googleapis.com/travel.frontend.flights.ErrorResponse",
+                        [[None, [[1, 2, 3], None, None, None, None, [[0]]], 0, "x", "y"], 0],
+                    ]
+                ],
+            ],
+        ]
+    ]
+    raw = json.dumps(wrb, separators=(",", ":"))
+    return f")]}}'\n\n{len(raw)}\n{raw}"
+
+
+class LiveShapedCompactTests(unittest.TestCase):
+    def test_tap_one_stop_hour_only_arrival_and_layover(self) -> None:
+        card = parse_shopping_body(_compact_body(_tap_long_layover()))[0]
+        self.assertEqual(card.airline, "Tap Air Portugal")
+        self.assertEqual(card.departure, "13:40")
+        self.assertEqual(card.arrival, "09:00")
+        self.assertEqual(card.duration, "20 hr 20 min")
+        self.assertEqual(card.stops, "1 stop")
+        self.assertEqual(card.layover_city, "Lisbon")
+        self.assertEqual(card.layover_hours, 18.0)
+        offer = _normalize_offer(card, max_stops=1)
+        assert offer is not None
+        self.assertEqual(offer.arrival, "09:00")
+        self.assertEqual(offer.layover_city, "Lisbon")
+        self.assertEqual(offer.layover_hours, 18.0)
+
+    def test_iberia_hour_only_arrival_is_not_null(self) -> None:
+        card = parse_shopping_body(_compact_body(_iberia_hour_only_arrival()))[0]
+        self.assertEqual(card.departure, "19:40")
+        self.assertEqual(card.arrival, "20:00")
+        self.assertIsNone(card.layover_city)
+        self.assertIsNone(card.layover_hours)
+
+    def test_late_iberia_nonstop_keeps_next_day_arrival(self) -> None:
+        card = parse_shopping_body(_compact_body(_iberia_late_nonstop()))[0]
+        self.assertEqual(card.departure, "23:10")
+        self.assertEqual(card.arrival, "00:30")
+        self.assertEqual(card.stops, "Nonstop")
+
+    def test_longhaul_group_starting_with_hour_only_departure_parses(self) -> None:
+        body = _compact_body(_longhaul_cz_hour_only_dep(), other=(_longhaul_etihad(),))
+        cards = parse_shopping_body(body)
+        self.assertEqual(len(cards), 2)
+        by_airline = {card.airline: card for card in cards}
+        cz = by_airline["China Southern"]
+        self.assertEqual(cz.departure, "21:00")
+        self.assertEqual(cz.arrival, "21:50")
+        self.assertEqual(cz.duration, "17 hr 50 min")
+        self.assertEqual(cz.stops, "1 stop")
+        self.assertEqual(cz.price, "€314")
+        self.assertEqual(cz.layover_city, "Guangzhou")
+        self.assertAlmostEqual(cz.layover_hours or 0, 70 / 60)
+        ey = by_airline["Etihad"]
+        self.assertEqual(ey.departure, "10:45")
+        self.assertEqual(ey.arrival, "10:55")
+        self.assertEqual(ey.layover_city, "Abu Dhabi")
+
+    def test_hour_only_departure_as_only_best_itinerary_is_not_empty(self) -> None:
+        cards = parse_shopping_body(_compact_body(_longhaul_cz_hour_only_dep()))
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].airline, "China Southern")
+        self.assertEqual(cards[0].departure, "21:00")
+
+    def test_shopping_error_response_is_rejected_not_a_compact_miss(self) -> None:
+        with self.assertRaises(ShoppingRejected):
+            parse_shopping_body(_error_response_body())
+
+    def test_source_does_not_download_html_after_shopping_reject(self) -> None:
+        client = _FakeSweepClient(post_text=_error_response_body())
+        source = GoogleFlightsHttpSource(client=client)
+        with self.assertRaises(GoogleFlightsRejected):
+            source.fetch(FlightQuery("XXX", "YYY", date(2026, 9, 1), max_stops=1))
         self.assertEqual(client.gets, [])
 
 

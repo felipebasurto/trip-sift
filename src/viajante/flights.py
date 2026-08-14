@@ -13,6 +13,7 @@ from viajante.google_flights import (
     GoogleFlightsBlocked,
     GoogleFlightsHttpSource,
     GoogleFlightsMarkupError,
+    GoogleFlightsRejected,
     GoogleFlightsSource,
     NoFlightsFound,
     RawFlightCard,
@@ -39,7 +40,12 @@ from viajante.orchestration import (
 from viajante.orchestration import (
     classify_failure as classify_provider_failure,
 )
-from viajante.parsers import parse_duration_hours, parse_price_eur, parse_stops_count
+from viajante.parsers import (
+    normalize_clock,
+    parse_duration_hours,
+    parse_price_eur,
+    parse_stops_count,
+)
 from viajante.storage import default_state_dir, write_json_atomic
 
 DEFAULT_BAGGAGE_BUFFER_EUR = 70
@@ -70,6 +76,9 @@ LOW_COST_NAMES = [
 ]
 
 NO_RESULTS_MESSAGE = "Google Flights returned no flights for this route and date."
+REJECTED_MESSAGE = (
+    "Google Flights rejected this route or date (unknown airport or invalid query)."
+)
 
 FlightSort = Literal["ranked", "fare"]
 FetchMode = Literal["auto", "sweep", "detail"]
@@ -86,13 +95,23 @@ def resolve_fetch_mode(fetch: FetchMode, query_count: int) -> Literal["sweep", "
     raise ValueError("fetch must be 'auto', 'sweep', or 'detail'")
 
 
+def _needs_detail_fallback(result: QueryResult) -> bool:
+    if isinstance(result, QuerySuccess):
+        return result.raw_count == 0
+    if not isinstance(result, QueryFailure):
+        return False
+    if result.error.code == SearchErrorCode.NO_RESULTS:
+        return result.error.message != REJECTED_MESSAGE
+    if result.error.code != SearchErrorCode.FETCH_FAILED:
+        return False
+    text = result.error.message.casefold()
+    if "markup" in text or "no results grid" in text:
+        return False
+    return True
+
+
 def sweep_needs_fallback(report: SearchReport) -> bool:
-    for result in report.queries:
-        if isinstance(result, QueryFailure):
-            return True
-        if isinstance(result, QuerySuccess) and result.raw_count == 0:
-            return True
-    return False
+    return any(_needs_detail_fallback(result) for result in report.queries)
 
 
 def classify_failure(exc: BaseException) -> SearchError:
@@ -100,6 +119,11 @@ def classify_failure(exc: BaseException) -> SearchError:
         return SearchError(
             code=SearchErrorCode.NO_RESULTS,
             message=NO_RESULTS_MESSAGE,
+        )
+    if isinstance(exc, GoogleFlightsRejected):
+        return SearchError(
+            code=SearchErrorCode.NO_RESULTS,
+            message=REJECTED_MESSAGE,
         )
     return classify_provider_failure(exc, provider="Google Flights")
 
@@ -230,6 +254,7 @@ def _normalize_offer(
     max_stops: int,
     *,
     buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
+    max_layover_hours: Optional[float] = None,
 ) -> Optional[FlightOffer]:
     price_text = raw.price or ""
     price_eur = parse_price_eur(price_text)
@@ -237,17 +262,29 @@ def _normalize_offer(
         return None
     if not _eligible_stops(raw.stops, max_stops):
         return None
+    stops_count = parse_stops_count(raw.stops)
+    layover_hours = raw.layover_hours
+    if (
+        max_layover_hours is not None
+        and stops_count
+        and stops_count > 0
+        and layover_hours is not None
+        and layover_hours > max_layover_hours
+    ):
+        return None
     airline = raw.airline or ""
     return FlightOffer(
         airline=raw.airline,
-        departure=raw.departure,
-        arrival=raw.arrival,
+        departure=normalize_clock(raw.departure) or raw.departure,
+        arrival=normalize_clock(raw.arrival) or raw.arrival,
         price=price_text,
         price_eur=price_eur,
         duration=raw.duration,
         duration_hours=parse_duration_hours(raw.duration),
         stops=raw.stops,
-        stops_count=parse_stops_count(raw.stops),
+        stops_count=stops_count,
+        layover_city=raw.layover_city,
+        layover_hours=layover_hours,
         baggage_buffer_eur=baggage_buffer_eur(airline, buffer_eur=buffer_eur),
         needs_bag_verify=is_low_cost(airline),
     )
@@ -276,8 +313,8 @@ def _rank_offers(
     for offer in rows:
         key = (
             offer.airline,
-            offer.departure,
-            offer.arrival,
+            normalize_clock(offer.departure) or offer.departure,
+            normalize_clock(offer.arrival) or offer.arrival,
             offer.price_eur,
             offer.stops_count,
             offer.duration_hours,
@@ -307,6 +344,7 @@ def _run_search(
     inter_query_delay: Callable[[random.Random], float] = inter_query_delay_seconds,
     fetch_backend: Optional[FetchBackend] = None,
     fetch_ms: Optional[int] = None,
+    max_layover_hours: Optional[float] = None,
 ) -> SearchReport:
     report_progress = progress or (lambda _: None)
     results: list[QueryResult] = []
@@ -323,7 +361,14 @@ def _run_search(
                 eligible = [
                     offer
                     for raw in cards
-                    if (offer := _normalize_offer(raw, query.max_stops, buffer_eur=buffer_eur))
+                    if (
+                        offer := _normalize_offer(
+                            raw,
+                            query.max_stops,
+                            buffer_eur=buffer_eur,
+                            max_layover_hours=max_layover_hours,
+                        )
+                    )
                     is not None
                 ]
                 outcome = QuerySuccess(
@@ -390,6 +435,7 @@ def _search_with_source(
     progress: Optional[Callable[[str], None]],
     sort: FlightSort,
     inter_query_delay: Callable[[random.Random], float],
+    max_layover_hours: Optional[float] = None,
 ) -> SearchReport:
     try:
         return _run_search(
@@ -405,6 +451,7 @@ def _search_with_source(
             currency=source.config.currency,
             sort=sort,
             inter_query_delay=inter_query_delay,
+            max_layover_hours=max_layover_hours,
         )
     finally:
         source.close()
@@ -418,6 +465,7 @@ def search_flights(
     progress: Optional[Callable[[str], None]] = None,
     sort: FlightSort = "ranked",
     fetch: FetchMode = "auto",
+    max_layover_hours: Optional[float] = None,
 ) -> SearchReport:
     if not queries:
         raise ValueError("at least one query is required")
@@ -425,6 +473,8 @@ def search_flights(
         raise ValueError("top must be positive")
     if buffer_eur < 0:
         raise ValueError("buffer_eur must not be negative")
+    if max_layover_hours is not None and max_layover_hours < 0:
+        raise ValueError("max_layover_hours must not be negative")
     if sort not in ("ranked", "fare"):
         raise ValueError("sort must be 'ranked' or 'fare'")
     if fetch not in ("auto", "sweep", "detail"):
@@ -443,17 +493,34 @@ def search_flights(
             progress=progress,
             sort=sort,
             inter_query_delay=sweep_inter_query_delay_seconds,
+            max_layover_hours=max_layover_hours,
         )
-        if sweep_needs_fallback(report):
+        retry_indexes = [
+            index
+            for index, result in enumerate(report.queries)
+            if _needs_detail_fallback(result)
+        ]
+        if retry_indexes:
             report_progress("sweep empty/markup/block; falling back to detail")
-            report = _search_with_source(
-                queries,
+            retry_queries = tuple(report.queries[index].query for index in retry_indexes)
+            detail_report = _search_with_source(
+                retry_queries,
                 source=GoogleFlightsSource(default_state_dir()),
                 top=top,
                 buffer_eur=buffer_eur,
                 progress=progress,
                 sort=sort,
                 inter_query_delay=inter_query_delay_seconds,
+                max_layover_hours=max_layover_hours,
+            )
+            merged = list(report.queries)
+            for index, detail_result in zip(retry_indexes, detail_report.queries, strict=True):
+                merged[index] = detail_result
+            report = SearchReport(
+                searched_at=report.searched_at,
+                queries=tuple(merged),
+                locale=report.locale,
+                currency=report.currency,
             )
             backend: FetchBackend = "sweep_then_detail"
         else:
@@ -469,6 +536,7 @@ def search_flights(
             progress=progress,
             sort=sort,
             inter_query_delay=inter_query_delay_seconds,
+            max_layover_hours=max_layover_hours,
         )
         backend = "detail"
     fetch_ms = max(0, int((time.perf_counter() - started) * 1000))

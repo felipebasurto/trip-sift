@@ -43,6 +43,8 @@ OFFER_KEYS = {
     "duration_hours",
     "stops",
     "stops_count",
+    "layover_city",
+    "layover_hours",
     "baggage_buffer_eur",
     "needs_bag_verify",
 }
@@ -61,6 +63,8 @@ def _report() -> SearchReport:
         duration_hours=1.4166666666666667,
         stops="Nonstop",
         stops_count=0,
+        layover_city=None,
+        layover_hours=None,
         baggage_buffer_eur=70,
         needs_bag_verify=True,
     )

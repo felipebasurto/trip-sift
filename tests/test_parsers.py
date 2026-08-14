@@ -4,6 +4,7 @@ import unittest
 
 from viajante.models import CancellationEvidence, LodgingKind, PropertyTypeEvidence
 from viajante.parsers import (
+    normalize_clock,
     parse_cancellation_evidence,
     parse_duration_hours,
     parse_lodging_kind,
@@ -82,6 +83,25 @@ class ParserTests(unittest.TestCase):
         for text, want in STOPS_CASES:
             with self.subTest(text=text):
                 self.assertEqual(parse_stops_count(text), want)
+
+    def test_normalize_clock_unifies_sweep_and_detail(self) -> None:
+        cases = [
+            ("1:40 PM", "13:40"),
+            ("13:40", "13:40"),
+            ("9:05 AM", "09:05"),
+            ("09:05", "09:05"),
+            ("12:10 AM", "00:10"),
+            ("12:00 PM", "12:00"),
+            ("10:35 AM on Fri, Oct 9", "10:35"),
+            ("1:10 PM on Sat, Oct 10", "13:10"),
+            ("23:10+1", "23:10"),
+            ("00:30", "00:30"),
+            (None, None),
+            ("", None),
+        ]
+        for text, want in cases:
+            with self.subTest(text=text):
+                self.assertEqual(normalize_clock(text), want)
 
     def test_overnight_durations_are_not_undercounted(self) -> None:
         overnight = parse_duration_hours("1 day 3 hr")

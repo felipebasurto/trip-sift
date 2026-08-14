@@ -98,6 +98,7 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 | `--baggage-buffer` | `70` | EUR added to low-cost fares when ranking. `0` ranks on fare alone. |
 | `--sort` | `ranked` | `ranked` uses fare+buffer for `--top`; `fare` uses cabin fare. |
 | `--fetch` | `auto` | `sweep` = owned shopping RPC, Chrome TLS session, HTML fallback; `detail` = Playwright max evidence. `auto` picks sweep for 3+ queries, detail for 1–2. |
+| `--max-layover` | off | Drop 1-stop offers whose layover exceeds this many hours. Nonstops are kept. |
 | `--save FILE` | off | Write the JSON report atomically. |
 
 | `hotels` flag | Default | Behavior |
@@ -153,6 +154,8 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
           "duration_hours": 1.42,
           "stops": "Nonstop",
           "stops_count": 0,
+          "layover_city": null,
+          "layover_hours": null,
           "baggage_buffer_eur": 70,
           "needs_bag_verify": true
         }
