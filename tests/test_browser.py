@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from trip_sift.browser import (
+from viajante.browser import (
     BLOCKED_RESOURCE_TYPES,
     BrowserSessionConfig,
     ChromiumSession,
@@ -119,8 +119,8 @@ class ChromiumSessionTests(unittest.TestCase):
             )
 
             with (
-                patch("trip_sift.browser.sync_playwright", return_value=starter),
-                patch("trip_sift.browser.atexit.register") as register,
+                patch("viajante.browser.sync_playwright", return_value=starter),
+                patch("viajante.browser.atexit.register") as register,
             ):
                 first = session._ensure_context()
                 second = session._ensure_context()
@@ -160,7 +160,7 @@ class ChromiumSessionTests(unittest.TestCase):
                     user_agent="TestAgent/1.0",
                 ),
             )
-            with patch("trip_sift.browser.sync_playwright", return_value=starter):
+            with patch("viajante.browser.sync_playwright", return_value=starter):
                 session._ensure_context()
 
         self.assertEqual(

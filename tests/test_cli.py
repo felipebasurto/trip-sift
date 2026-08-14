@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Optional
 from unittest.mock import patch
 
-import trip_sift
-from trip_sift.cli import _format_clock, _join_cancellation_rows, _print_report, main
-from trip_sift.hotels import write_hotel_report_atomic
-from trip_sift.models import (
+import viajante
+from viajante.cli import _format_clock, _join_cancellation_rows, _print_report, main
+from viajante.hotels import write_hotel_report_atomic
+from viajante.models import (
     AppliedHotelFilters,
     CancellationEvidence,
     FlightOffer,
@@ -92,35 +92,35 @@ def _rendered(report: SearchReport, *, sort: str = "ranked") -> str:
 
 class CliTests(unittest.TestCase):
     def test_validation_before_search(self) -> None:
-        with patch("trip_sift.cli.search_flights") as search:
+        with patch("viajante.cli.search_flights") as search:
             code = main(["flights", "BADROUTE"])
             self.assertEqual(code, 1)
             search.assert_not_called()
 
     def test_invalid_max_stops(self) -> None:
-        with patch("trip_sift.cli.search_flights") as search:
+        with patch("viajante.cli.search_flights") as search:
             with redirect_stdout(io.StringIO()):
                 code = main(["flights", ROUTE, "--max-stops", "3"])
             self.assertEqual(code, 1)
             search.assert_not_called()
 
     def test_prints_results(self) -> None:
-        with patch("trip_sift.cli.search_flights", return_value=_report()):
-            with patch("trip_sift.cli._print_report") as printer:
+        with patch("viajante.cli.search_flights", return_value=_report()):
+            with patch("viajante.cli._print_report") as printer:
                 code = main(["flights", ROUTE])
                 self.assertEqual(code, 0)
                 printer.assert_called_once()
 
     def test_save_only_when_requested(self) -> None:
-        with patch("trip_sift.cli.search_flights", return_value=_report()):
-            with patch("trip_sift.cli.write_report_atomic") as writer:
-                with patch("trip_sift.cli._print_report"):
+        with patch("viajante.cli.search_flights", return_value=_report()):
+            with patch("viajante.cli.write_report_atomic") as writer:
+                with patch("viajante.cli._print_report"):
                     main(["flights", ROUTE])
                 writer.assert_not_called()
 
     def test_atomic_save(self) -> None:
-        with patch("trip_sift.cli.search_flights", return_value=_report()):
-            with patch("trip_sift.cli._print_report"), redirect_stdout(io.StringIO()):
+        with patch("viajante.cli.search_flights", return_value=_report()):
+            with patch("viajante.cli._print_report"), redirect_stdout(io.StringIO()):
                 with tempfile.TemporaryDirectory() as tmp:
                     out = Path(tmp) / "out.json"
                     code = main(["flights", ROUTE, "--save", str(out)])
@@ -143,8 +143,8 @@ class CliTests(unittest.TestCase):
                 ),
             ),
         )
-        with patch("trip_sift.cli.search_flights", return_value=report):
-            with patch("trip_sift.cli._print_report"):
+        with patch("viajante.cli.search_flights", return_value=report):
+            with patch("viajante.cli._print_report"):
                 self.assertEqual(main(["flights", ROUTE]), 2)
 
     def test_partial_failure_returns_three(self) -> None:
@@ -158,19 +158,19 @@ class CliTests(unittest.TestCase):
                 ),
             ),
         )
-        with patch("trip_sift.cli.search_flights", return_value=report):
-            with patch("trip_sift.cli._print_report"):
+        with patch("viajante.cli.search_flights", return_value=report):
+            with patch("viajante.cli._print_report"):
                 self.assertEqual(main(["flights", ROUTE]), 3)
 
     def test_baggage_buffer_flag_reaches_the_search(self) -> None:
-        with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
-            with patch("trip_sift.cli._print_report"):
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
                 main(["flights", ROUTE, "--baggage-buffer", "0"])
         self.assertEqual(search.call_args.kwargs["buffer_eur"], 0)
 
     def test_adults_and_cabin_reach_parsed_queries(self) -> None:
-        with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
-            with patch("trip_sift.cli._print_report"):
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
                 code = main(["flights", ROUTE, "--adults", "2", "--cabin", "business"])
         self.assertEqual(code, 0)
         queries = search.call_args.args[0]
@@ -178,24 +178,24 @@ class CliTests(unittest.TestCase):
         self.assertEqual(queries[0].cabin, "business")
 
     def test_zero_adults_is_rejected_before_searching(self) -> None:
-        with patch("trip_sift.cli.search_flights") as search:
+        with patch("viajante.cli.search_flights") as search:
             self.assertEqual(main(["flights", ROUTE, "--adults", "0"]), 1)
             search.assert_not_called()
 
     def test_negative_baggage_buffer_is_rejected_before_searching(self) -> None:
-        with patch("trip_sift.cli.search_flights") as search:
+        with patch("viajante.cli.search_flights") as search:
             self.assertEqual(main(["flights", ROUTE, "--baggage-buffer", "-1"]), 1)
             search.assert_not_called()
 
     def test_past_dates_are_rejected_before_starting_chromium(self) -> None:
-        with patch("trip_sift.cli.search_flights") as search:
+        with patch("viajante.cli.search_flights") as search:
             code = main(["flights", f"MAD-BCN:{PAST_DATE.isoformat()}"])
             self.assertEqual(code, 1)
             search.assert_not_called()
 
     def test_today_is_accepted(self) -> None:
-        with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
-            with patch("trip_sift.cli._print_report"):
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
                 main(["flights", f"MAD-BCN:{date.today().isoformat()}"])
             search.assert_called_once()
 
@@ -289,14 +289,14 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertNotIn("on Fri", output)
 
     def test_sort_flag_reaches_the_search(self) -> None:
-        with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
-            with patch("trip_sift.cli._print_report"):
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
                 main(["flights", ROUTE, "--sort", "fare"])
         self.assertEqual(search.call_args.kwargs["sort"], "fare")
 
     def test_rt_sugar_builds_return_leg(self) -> None:
-        with patch("trip_sift.cli.search_flights", return_value=_report()) as search:
-            with patch("trip_sift.cli._print_report"):
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
                 code = main(["flights", "MAD-OPO:2026-10-09:2026-10-12"])
         self.assertEqual(code, 0)
         queries = search.call_args.args[0]
@@ -352,7 +352,7 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertEqual(code, 0)
         help_text = buffer.getvalue()
         self.assertIn("Examples:", help_text)
-        self.assertIn("trip-sift flights MAD-BCN", help_text)
+        self.assertIn("viajante flights MAD-BCN", help_text)
         self.assertIn("MAD-OPO:2026-10-09:2026-10-12", help_text)
         self.assertIn("--sort", help_text)
 
@@ -365,7 +365,7 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("flights", help_text)
         self.assertIn("hotels", help_text)
         self.assertIn("Examples:", help_text)
-        self.assertIn("trip-sift flights MAD-BCN", help_text)
+        self.assertIn("viajante flights MAD-BCN", help_text)
 
 
 def _sample_hotel_report(
@@ -421,9 +421,9 @@ class PublicApiTests(unittest.TestCase):
             "PropertyTypeEvidence",
             "search_hotels",
         ):
-            self.assertTrue(hasattr(trip_sift, name), msg=name)
+            self.assertTrue(hasattr(viajante, name), msg=name)
         self.assertEqual(
-            set(trip_sift.__all__),
+            set(viajante.__all__),
             {
                 "FlightQuery",
                 "SearchReport",
@@ -439,14 +439,14 @@ class PublicApiTests(unittest.TestCase):
 
 class HotelCliTests(unittest.TestCase):
     def test_hotels_help_returns_zero_without_search(self) -> None:
-        with patch("trip_sift.cli.search_hotels") as search:
+        with patch("viajante.cli.search_hotels") as search:
             code = main(["hotels", "--help"])
             self.assertEqual(code, 0)
             search.assert_not_called()
 
     def test_valid_args_build_exact_hotel_query(self) -> None:
-        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()) as search:
-            with patch("trip_sift.cli._print_hotel_report"):
+        with patch("viajante.cli.search_hotels", return_value=_sample_hotel_report()) as search:
+            with patch("viajante.cli._print_hotel_report"):
                 code = main(
                     [
                         "hotels",
@@ -486,8 +486,8 @@ class HotelCliTests(unittest.TestCase):
                 )
 
     def test_compare_cancellation_builds_two_queries(self) -> None:
-        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()) as search:
-            with patch("trip_sift.cli._print_hotel_report"):
+        with patch("viajante.cli.search_hotels", return_value=_sample_hotel_report()) as search:
+            with patch("viajante.cli._print_hotel_report"):
                 code = main(
                     [
                         "hotels",
@@ -597,7 +597,7 @@ class HotelCliTests(unittest.TestCase):
                 ),
             ),
         )
-        with patch("trip_sift.cli.search_hotels", return_value=report):
+        with patch("viajante.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 code = main(
@@ -646,7 +646,7 @@ class HotelCliTests(unittest.TestCase):
                 ),
             ),
         )
-        with patch("trip_sift.cli.search_hotels", return_value=report):
+        with patch("viajante.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 code = main(
@@ -664,7 +664,7 @@ class HotelCliTests(unittest.TestCase):
             self.assertIn("error:", output)
 
     def test_compare_cancellation_rejects_allow_non_refundable(self) -> None:
-        with patch("trip_sift.cli.search_hotels") as search:
+        with patch("viajante.cli.search_hotels") as search:
             code = main(
                 [
                     "hotels",
@@ -679,8 +679,8 @@ class HotelCliTests(unittest.TestCase):
             search.assert_not_called()
 
     def test_allow_non_refundable_flips_cancellation_only(self) -> None:
-        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()) as search:
-            with patch("trip_sift.cli._print_hotel_report"):
+        with patch("viajante.cli.search_hotels", return_value=_sample_hotel_report()) as search:
+            with patch("viajante.cli._print_hotel_report"):
                 main(
                     [
                         "hotels",
@@ -709,7 +709,7 @@ class HotelCliTests(unittest.TestCase):
         ]
         for argv in cases:
             with self.subTest(argv=argv):
-                with patch("trip_sift.cli.search_hotels") as search:
+                with patch("viajante.cli.search_hotels") as search:
                     self.assertEqual(main(argv), 1)
                     search.assert_not_called()
 
@@ -726,7 +726,7 @@ class HotelCliTests(unittest.TestCase):
 
     def test_default_filter_gloss_and_booking_chips(self) -> None:
         report = _sample_hotel_report(offers=(_sample_hotel_offer(),))
-        with patch("trip_sift.cli.search_hotels", return_value=report):
+        with patch("viajante.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 main(["hotels", "Prague", "2026-12-04", "2026-12-07"])
@@ -755,7 +755,7 @@ class HotelCliTests(unittest.TestCase):
                 ),
             ),
         )
-        with patch("trip_sift.cli.search_hotels", return_value=report):
+        with patch("viajante.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 main(
@@ -775,7 +775,7 @@ class HotelCliTests(unittest.TestCase):
         report = _sample_hotel_report(
             offers=(_sample_hotel_offer(total_price="419,50 €"),),
         )
-        with patch("trip_sift.cli.search_hotels", return_value=report):
+        with patch("viajante.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 code = main(["hotels", "Prague", "2026-12-04", "2026-12-07"])
@@ -823,7 +823,7 @@ class HotelCliTests(unittest.TestCase):
                 ),
             ),
         )
-        with patch("trip_sift.cli.search_hotels", return_value=report):
+        with patch("viajante.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 main(
@@ -858,7 +858,7 @@ class HotelCliTests(unittest.TestCase):
             link=None,
         )
         report = _sample_hotel_report(offers=(silent,))
-        with patch("trip_sift.cli.search_hotels", return_value=report):
+        with patch("viajante.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 main(["hotels", "Prague", "2026-12-04", "2026-12-07"])
@@ -870,7 +870,7 @@ class HotelCliTests(unittest.TestCase):
 
     def test_empty_success_output(self) -> None:
         report = _sample_hotel_report(offers=(), raw_count=2, eligible_count=0)
-        with patch("trip_sift.cli.search_hotels", return_value=report):
+        with patch("viajante.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 code = main(["hotels", "Prague", "2026-12-04", "2026-12-07"])
@@ -895,7 +895,7 @@ class HotelCliTests(unittest.TestCase):
                 ),
             ),
         )
-        with patch("trip_sift.cli.search_hotels", return_value=report):
+        with patch("viajante.cli.search_hotels", return_value=report):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 code = main(["hotels", "Prague", "2026-12-04", "2026-12-07"])
@@ -907,15 +907,15 @@ class HotelCliTests(unittest.TestCase):
             self.assertNotIn("verify the final total stay", output.casefold())
 
     def test_save_only_when_requested(self) -> None:
-        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()):
-            with patch("trip_sift.cli.write_hotel_report_atomic") as writer:
+        with patch("viajante.cli.search_hotels", return_value=_sample_hotel_report()):
+            with patch("viajante.cli.write_hotel_report_atomic") as writer:
                 main(["hotels", "Prague", "2026-12-04", "2026-12-07"])
                 writer.assert_not_called()
 
     def test_atomic_save(self) -> None:
-        with patch("trip_sift.cli.search_hotels", return_value=_sample_hotel_report()):
+        with patch("viajante.cli.search_hotels", return_value=_sample_hotel_report()):
             with patch(
-                "trip_sift.cli.write_hotel_report_atomic",
+                "viajante.cli.write_hotel_report_atomic",
                 wraps=write_hotel_report_atomic,
             ) as writer:
                 with tempfile.TemporaryDirectory() as tmp:

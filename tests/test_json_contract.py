@@ -4,7 +4,7 @@ import json
 import unittest
 from datetime import date, datetime, timezone
 
-from trip_sift.models import (
+from viajante.models import (
     FlightOffer,
     FlightQuery,
     QueryFailure,

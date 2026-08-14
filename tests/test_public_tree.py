@@ -17,8 +17,8 @@ IGNORED_AUDIT_DIRS = {
 }
 
 README_SVG_REFS = (
-    "docs/assets/trip-sift-hero.svg",
-    "docs/assets/how-trip-sift-works.svg",
+    "docs/assets/viajante-hero.svg",
+    "docs/assets/how-viajante-works.svg",
 )
 
 BANNED_SUFFIXES = {".csv", ".log"}
@@ -52,7 +52,7 @@ def _should_scan_text_content(path: Path) -> bool:
 
 class PublicTreeHygieneTests(unittest.TestCase):
     def test_generated_results_are_ignored_by_audit(self) -> None:
-        self.assertTrue(_is_under_ignored_audit_dir(Path("results/search.trip-sift.json")))
+        self.assertTrue(_is_under_ignored_audit_dir(Path("results/search.viajante.json")))
 
     def test_no_private_artifacts(self) -> None:
         offenders: list[str] = []
@@ -115,7 +115,7 @@ class PublicTreeHygieneTests(unittest.TestCase):
         svgs = sorted(assets.glob("*.svg"))
         self.assertEqual(
             [path.name for path in svgs],
-            ["how-trip-sift-works.svg", "trip-sift-hero.svg"],
+            ["how-viajante-works.svg", "viajante-hero.svg"],
         )
         for path in svgs:
             root = ET.parse(path).getroot()

@@ -4,8 +4,8 @@ import unittest
 from datetime import date
 from urllib.parse import parse_qs, urlparse
 
-from trip_sift.flights import _normalize_offer
-from trip_sift.google_flights import (
+from viajante.flights import _normalize_offer
+from viajante.google_flights import (
     EMPTY_STATE_TEXT,
     GoogleFlightsMarkupError,
     NoFlightsFound,
@@ -13,7 +13,7 @@ from trip_sift.google_flights import (
     build_search_url,
     parse_flight_cards,
 )
-from trip_sift.models import FlightQuery
+from viajante.models import FlightQuery
 
 GOLDEN_TFS_DIRECT = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
 GOLDEN_TFS_ONE_STOP = "GhwSCjIwMjYtMTItMDQoAWoFEgNNQURyBRIDQkNOQgEBSAGYAQI="

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from trip_sift.models import CancellationEvidence, LodgingKind, PropertyTypeEvidence
-from trip_sift.parsers import (
+from viajante.models import CancellationEvidence, LodgingKind, PropertyTypeEvidence
+from viajante.parsers import (
     parse_cancellation_evidence,
     parse_duration_hours,
     parse_lodging_kind,
