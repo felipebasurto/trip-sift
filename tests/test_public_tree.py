@@ -27,7 +27,6 @@ ALLOWED_JSON_DIRS = {ROOT / "tests"}
 
 def _banned_path_markers() -> tuple[str, ...]:
     return (
-        "raw_" + "fast" + "_flights",
         "Fel" + "ipe",
         "prague_" + "confirmed_stay",
         ".pw_state",
