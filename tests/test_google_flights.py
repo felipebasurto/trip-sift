@@ -430,6 +430,20 @@ class ShoppingRpcTests(unittest.TestCase):
         self.assertEqual(offer.stops_count, 1)
         self.assertEqual(offer.duration_hours, 4 + 5 / 60)
 
+    def test_missing_itinerary_arrival_uses_last_leg(self) -> None:
+        item = _itinerary(dep=(13, 40), arr=(16, 20), minutes=160, price=74, legs=2)
+        item[0][8] = None
+        first = [None] * 11
+        first[8] = [13, 40]
+        first[10] = [14, 30]
+        last = [None] * 11
+        last[8] = [15, 10]
+        last[10] = [16, 20]
+        item[0][2] = [first, last]
+        card = parse_shopping_body(_compact_body(item))[0]
+        self.assertEqual(card.departure, "1:40 PM")
+        self.assertEqual(card.arrival, "4:20 PM")
+
     def test_midnight_and_noon_clocks(self) -> None:
         body = _compact_body(
             _itinerary(dep=(0, 10), arr=(12, 0), minutes=60, price=40, legs=1),

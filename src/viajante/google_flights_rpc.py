@@ -248,8 +248,8 @@ def _itinerary_to_card(item: list[Any]) -> Optional[CompactFlightCard]:
         return None
     return CompactFlightCard(
         airline=", ".join(airlines) or None,
-        departure=_format_clock(flight[5]),
-        arrival=_format_clock(flight[8]) if isinstance(flight[8], list) else None,
+        departure=_format_clock(flight[5]) or _clock_from_leg(flight[2], 0, 8),
+        arrival=_format_clock(flight[8]) or _clock_from_leg(flight[2], -1, 10),
         duration=_format_duration_minutes(flight[9]),
         stops=_format_stops(flight[2]),
         price=price,
@@ -268,6 +268,18 @@ def _price_text(block: object) -> Optional[str]:
     if float(amount).is_integer():
         return f"€{int(amount)}"
     return f"€{amount}"
+
+
+def _clock_from_leg(legs: object, index: int, field: int) -> Optional[str]:
+    if not isinstance(legs, list) or not legs:
+        return None
+    try:
+        leg = legs[index]
+    except IndexError:
+        return None
+    if not isinstance(leg, list) or field >= len(leg):
+        return None
+    return _format_clock(leg[field])
 
 
 def _format_clock(value: object) -> Optional[str]:
