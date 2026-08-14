@@ -888,6 +888,14 @@ class LiveShapedCompactTests(unittest.TestCase):
         self.assertEqual(offer.layover_city, "Lisbon")
         self.assertEqual(offer.layover_hours, 18.0)
 
+    def test_layover_from_legs_when_itinerary_block_is_missing(self) -> None:
+        item = _tap_long_layover()
+        item[0][13] = None
+        card = parse_shopping_body(_compact_body(item))[0]
+        self.assertEqual(card.arrival, "09:00")
+        self.assertEqual(card.layover_city, "LIS")
+        self.assertEqual(card.layover_hours, 18.0)
+
     def test_iberia_hour_only_arrival_is_not_null(self) -> None:
         card = parse_shopping_body(_compact_body(_iberia_hour_only_arrival()))[0]
         self.assertEqual(card.departure, "19:40")

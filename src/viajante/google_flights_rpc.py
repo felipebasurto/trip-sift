@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
@@ -290,14 +291,10 @@ def _clock_from_leg(legs: object, index: int, field: int) -> Optional[str]:
 
 
 def _format_clock(value: object) -> Optional[str]:
-    if not isinstance(value, list) or not value:
+    parsed = _clock_hm(value)
+    if parsed is None:
         return None
-    hour = value[0]
-    minute = value[1] if len(value) > 1 else 0
-    if not isinstance(hour, int) or not isinstance(minute, int):
-        return None
-    if not (0 <= hour <= 23 and 0 <= minute <= 59):
-        return None
+    hour, minute = parsed
     return f"{hour:02d}:{minute:02d}"
 
 
@@ -320,7 +317,56 @@ def _layover_from_flight(flight: list[Any]) -> tuple[Optional[str], Optional[flo
                 best_city = city
         if best_hours is not None:
             return best_city, best_hours
-    return None, None
+    return _layover_from_legs(flight[2] if len(flight) > 2 else None)
+
+
+def _clock_hm(value: object) -> Optional[tuple[int, int]]:
+    if not isinstance(value, list) or not value:
+        return None
+    hour = value[0]
+    minute = value[1] if len(value) > 1 else 0
+    if not isinstance(hour, int) or not isinstance(minute, int):
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour, minute
+
+
+def _ymd(value: object) -> Optional[tuple[int, int, int]]:
+    if not isinstance(value, list) or len(value) < 3:
+        return None
+    year, month, day = value[0], value[1], value[2]
+    if not isinstance(year, int) or not isinstance(month, int) or not isinstance(day, int):
+        return None
+    return year, month, day
+
+
+def _layover_from_legs(legs: object) -> tuple[Optional[str], Optional[float]]:
+    if not isinstance(legs, list) or len(legs) < 2:
+        return None, None
+    best_city: Optional[str] = None
+    best_hours: Optional[float] = None
+    for index in range(len(legs) - 1):
+        inbound, outbound = legs[index], legs[index + 1]
+        if not isinstance(inbound, list) or not isinstance(outbound, list):
+            continue
+        arrival = _clock_hm(inbound[10] if len(inbound) > 10 else None)
+        departure = _clock_hm(outbound[8] if len(outbound) > 8 else None)
+        arrival_date = _ymd(inbound[21] if len(inbound) > 21 else None)
+        departure_date = _ymd(outbound[20] if len(outbound) > 20 else None)
+        if arrival is None or departure is None or arrival_date is None or departure_date is None:
+            continue
+        start = datetime(*arrival_date, arrival[0], arrival[1])
+        end = datetime(*departure_date, departure[0], departure[1])
+        minutes = (end - start).total_seconds() / 60.0
+        if minutes < 0:
+            continue
+        hours = minutes / 60.0
+        city = outbound[3] if len(outbound) > 3 and isinstance(outbound[3], str) else None
+        if best_hours is None or hours > best_hours:
+            best_hours = hours
+            best_city = city
+    return best_city, best_hours
 
 
 def _is_shopping_rejected(text: str) -> bool:
