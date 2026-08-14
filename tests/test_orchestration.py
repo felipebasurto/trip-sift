@@ -54,10 +54,18 @@ class ClassifyFailureTests(unittest.TestCase):
         self.assertTrue(error.message.endswith("..."))
         self.assertTrue(error.message.startswith("RuntimeError: "))
 
-    def test_non_retriable_codes_cover_no_results_and_browser(self) -> None:
+    def test_non_retriable_codes_cover_terminal_failures(self) -> None:
         self.assertEqual(
             NON_RETRIABLE_CODES,
-            frozenset({SearchErrorCode.NO_RESULTS, SearchErrorCode.BROWSER_UNAVAILABLE}),
+            frozenset(
+                {
+                    SearchErrorCode.NO_RESULTS,
+                    SearchErrorCode.REJECTED,
+                    SearchErrorCode.BLOCKED,
+                    SearchErrorCode.MARKUP_DRIFT,
+                    SearchErrorCode.BROWSER_UNAVAILABLE,
+                }
+            ),
         )
 
 

@@ -1,6 +1,34 @@
 version = 1
 revision = 3
 requires-python = ">=3.10"
+resolution-markers = [
+    "python_full_version >= '3.11'",
+    "python_full_version < '3.11'",
+]
+
+[[package]]
+name = "airportsdata"
+version = "20260315"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.11'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/28/d2/5e25eb4af6a9150817b25a283ed25f74ace41c9544faa80ee7bc3ec2de36/airportsdata-20260315.tar.gz", hash = "sha256:eb67de3b8167bfe810020095188ebba043ed16e934cc52ba3930e2cbd1c2dcb6", size = 932567, upload-time = "2026-03-15T02:57:19.247Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/24/2e/cbf1b31fd5d069fb1d2c0f1142fde8bd515ad1a7d0272d05efff63c35eb4/airportsdata-20260315-py3-none-any.whl", hash = "sha256:22e03801468663fbee9a73e8864f25e3707acc1e43d0fc47586cc8c66365700a", size = 935379, upload-time = "2026-03-15T02:57:17.151Z" },
+]
+
+[[package]]
+name = "airportsdata"
+version = "20260803"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.11'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/80/ab3b3b5939301c92a6553ffe478150b5c709ed5eb6e4289fec94b6b75b5f/airportsdata-20260803.tar.gz", hash = "sha256:418e42c21b24820429ca23149a825fee24784caed6a2a1ecee7e049f76cbf5b0", size = 928138, upload-time = "2026-08-03T02:09:11.406Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5d/12/d910568fb61ebcde550cc6bdc952fb9c43ae5935331c0e8db28da7e67976/airportsdata-20260803-py3-none-any.whl", hash = "sha256:e741bf85b85d1915ddfa540973d1f4360ea705031873a405fba16c04e9c811f5", size = 930818, upload-time = "2026-08-03T02:09:09.713Z" },
+]
 
 [[package]]
 name = "certifi"
@@ -526,6 +554,8 @@ name = "viajante"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "airportsdata", version = "20260315", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "airportsdata", version = "20260803", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "curl-cffi" },
     { name = "playwright" },
     { name = "selectolax" },
@@ -539,6 +569,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "airportsdata", specifier = ">=20260315" },
     { name = "curl-cffi", specifier = ">=0.16.0" },
     { name = "playwright", specifier = "==1.60.0" },
     { name = "selectolax", specifier = ">=0.3.25" },

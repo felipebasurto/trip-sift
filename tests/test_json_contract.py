@@ -45,6 +45,7 @@ OFFER_KEYS = {
     "stops_count",
     "layover_city",
     "layover_hours",
+    "flight_numbers",
     "baggage_buffer_eur",
     "needs_bag_verify",
 }

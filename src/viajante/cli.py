@@ -3,15 +3,32 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import re
 import sys
 from datetime import date
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
+from viajante.airports import is_known_iata, lookup_airports
+from viajante.dates import (
+    MAX_DATE_WINDOW_DAYS,
+    parse_route_pair,
+    search_dates,
+    validate_date_window,
+    write_dates_report_atomic,
+)
+from viajante.explore import (
+    DEFAULT_EXPLORE_TOP,
+    search_explore,
+    validate_explore_window,
+    write_explore_report_atomic,
+)
 from viajante.flights import (
     DEFAULT_BAGGAGE_BUFFER_EUR,
     FlightSort,
+    parse_airline_codes,
+    parse_depart_window,
     parse_route_specs,
     search_flights,
     write_report_atomic,
@@ -20,6 +37,8 @@ from viajante.hotels import search_hotels, write_hotel_report_atomic
 from viajante.models import (
     AppliedHotelFilters,
     CancellationEvidence,
+    DateCalendarReport,
+    ExploreReport,
     FlightOffer,
     FlightQuery,
     HotelOffer,
@@ -40,6 +59,27 @@ Examples:
   viajante flights MAD-BCN:2026-09-01 --fetch sweep
   viajante flights MAD-OPO:2026-10-09 --fetch sweep --max-layover 8
   viajante flights MAD-BCN:2026-09-01 --fetch detail
+  viajante flights MAD-BCN:2026-09-01 --exclude-airlines UX --depart-window 7-12 --fetch sweep
+  viajante flights MAD-BCN:2026-09-01 --airlines IB,I2 --sort duration
+"""
+
+DATES_EXAMPLES = """\
+Examples:
+  viajante dates MAD-LHR --from 2026-09-01 --to 2026-09-30
+  viajante dates MAD-BCN --from 2026-09-01 --to 2026-09-14 --fetch sweep
+"""
+
+EXPLORE_EXAMPLES = """\
+Examples:
+  viajante explore MAD --from 2026-09-01 --days 7
+  viajante explore MAD --month 2026-09
+"""
+
+AIRPORTS_EXAMPLES = """\
+Examples:
+  viajante airports london
+  viajante airports MAD
+  viajante airports barcelona
 """
 
 HOTELS_EXAMPLES = """\
@@ -61,6 +101,9 @@ def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
         raise ValueError("--adults must be at least 1")
     if args.max_layover is not None and args.max_layover < 0:
         raise ValueError("--max-layover must not be negative")
+    parse_airline_codes(args.airlines)
+    parse_airline_codes(args.exclude_airlines)
+    parse_depart_window(args.depart_window)
     queries = parse_route_specs(
         args.routes,
         max_stops=args.max_stops,
@@ -117,7 +160,11 @@ def _ranked_total(offer: FlightOffer) -> float:
 
 
 def _sort_value(offer: FlightOffer, sort: FlightSort) -> float:
-    return offer.price_eur if sort == "fare" else _ranked_total(offer)
+    if sort == "fare":
+        return offer.price_eur
+    if sort == "duration":
+        return offer.duration_hours if offer.duration_hours is not None else float("inf")
+    return _ranked_total(offer)
 
 
 def _format_ranking_columns(offer: FlightOffer) -> str:
@@ -428,6 +475,9 @@ def _run_flights(args: argparse.Namespace) -> int:
         sort=args.sort,
         fetch=args.fetch,
         max_layover_hours=args.max_layover,
+        airlines=parse_airline_codes(args.airlines),
+        exclude_airlines=parse_airline_codes(args.exclude_airlines),
+        depart_window=parse_depart_window(args.depart_window),
     )
     _print_report(report, sort=args.sort)
 
@@ -459,6 +509,161 @@ def _run_hotels(args: argparse.Namespace) -> int:
         print(f"\nSaved {destination}")
 
     return _exit_code(report)
+
+
+def _print_dates_report(report: DateCalendarReport) -> None:
+    print(
+        f"\n=== {report.origin} -> {report.destination}  "
+        f"{report.start_date.isoformat()} .. {report.end_date.isoformat()} ==="
+    )
+    any_price = False
+    for row in report.days:
+        if row.status == "error" and row.error is not None:
+            print(f"  {row.departure_date.isoformat()}   ERROR: {row.error.message}")
+            continue
+        if row.price_eur is None:
+            print(f"  {row.departure_date.isoformat()}      —")
+            continue
+        any_price = True
+        extra = ""
+        if row.airline:
+            extra += f"  {row.airline}"
+        if row.stops_count is not None:
+            extra += f"  {_format_stops(row.stops_count)}"
+        print(f"  {row.departure_date.isoformat()}  {row.price_eur:>7.0f} €{extra}")
+    if any_price:
+        print("\nVerify checked baggage on Google Flights before booking.")
+
+
+def _print_explore_report(report: ExploreReport) -> None:
+    print(
+        f"\n=== From {report.origin}  {report.start_date.isoformat()}  "
+        f"({report.days}-day window) ==="
+    )
+    if report.error is not None and not report.destinations:
+        print(f"  ERROR: {report.error.message}")
+        return
+    if not report.destinations:
+        print("  (no destinations)")
+        return
+    for row in report.destinations:
+        price = f"{row.price_eur:>7.0f} €" if row.price_eur is not None else "      —"
+        country = f"  {row.country}" if row.country else ""
+        print(f"  {price}  {row.iata}  {row.city}{country}")
+    print("\nVerify checked baggage on Google Flights before booking.")
+
+
+def _print_airports(query: str) -> int:
+    try:
+        rows = lookup_airports(query)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if not rows:
+        print("  (no airports)")
+        return 0
+    for row in rows:
+        city = row.city or "?"
+        country = row.country or "?"
+        print(f"  {row.iata}  {row.name}  {city}  {country}")
+    return 0
+
+
+def _dates_exit_code(report: DateCalendarReport) -> int:
+    failures = sum(row.status == "error" for row in report.days)
+    if failures == 0:
+        return 0
+    if failures == len(report.days):
+        return 2
+    return 3
+
+
+def _run_dates(args: argparse.Namespace) -> int:
+    try:
+        origin, destination = parse_route_pair(args.route)
+        start = _parse_iso_date(args.start, "--from")
+        end = _parse_iso_date(args.end, "--to")
+        if args.adults < 1:
+            raise ValueError("--adults must be at least 1")
+        validate_date_window(start, end)
+        FlightQuery(origin, destination, start, max_stops=args.max_stops, adults=args.adults)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    report = search_dates(
+        origin,
+        destination,
+        start,
+        end,
+        adults=args.adults,
+        cabin=args.cabin,
+        max_stops=args.max_stops,
+        progress=lambda line: print(line, file=sys.stderr),
+    )
+    _print_dates_report(report)
+    if args.save:
+        destination_path = Path(args.save)
+        write_dates_report_atomic(report, destination_path)
+        print(f"\nSaved {destination_path}")
+    return _dates_exit_code(report)
+
+
+def _month_start(value: str) -> date:
+    try:
+        year_text, month_text = value.split("-", 1)
+        year, month = int(year_text), int(month_text)
+        return date(year, month, 1)
+    except ValueError as exc:
+        raise ValueError("--month must look like YYYY-MM") from exc
+
+
+def _run_explore(args: argparse.Namespace) -> int:
+    try:
+        origin = args.origin.strip().upper()
+        if not is_known_iata(origin):
+            raise ValueError(f"unknown origin IATA code: {origin!r}")
+        if args.month and (args.start or args.days != 7):
+            raise ValueError("use either --month or --from/--days, not both")
+        if args.month:
+            start = _month_start(args.month)
+            days = calendar.monthrange(start.year, start.month)[1]
+        else:
+            if not args.start:
+                raise ValueError("--from or --month is required")
+            start = _parse_iso_date(args.start, "--from")
+            days = args.days
+        if args.top <= 0:
+            raise ValueError("--top must be a positive integer")
+        if args.adults < 1:
+            raise ValueError("--adults must be at least 1")
+        validate_explore_window(start, days)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    report = search_explore(
+        origin,
+        start,
+        days=days,
+        top=args.top,
+        adults=args.adults,
+        cabin=args.cabin,
+        max_stops=args.max_stops,
+        progress=lambda line: print(line, file=sys.stderr),
+    )
+    _print_explore_report(report)
+    if args.save:
+        destination_path = Path(args.save)
+        write_explore_report_atomic(report, destination_path)
+        print(f"\nSaved {destination_path}")
+    if report.error is not None and not report.destinations:
+        return 2
+    return 0
+
+
+def _run_airports(args: argparse.Namespace) -> int:
+    return _print_airports(args.query)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -518,8 +723,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     flights.add_argument(
         "--sort",
         default="ranked",
-        choices=["ranked", "fare"],
-        help="Order and select --top by ranked total (default) or fare",
+        choices=["ranked", "fare", "duration"],
+        help="Order and select --top by ranked total (default), fare, or duration",
+    )
+    flights.add_argument(
+        "--airlines",
+        default=None,
+        metavar="CODES",
+        help="Keep only these airline IATA codes (comma-separated, e.g. IB,I2)",
+    )
+    flights.add_argument(
+        "--exclude-airlines",
+        default=None,
+        dest="exclude_airlines",
+        metavar="CODES",
+        help="Drop these airline IATA codes (comma-separated, e.g. FR,RK)",
+    )
+    flights.add_argument(
+        "--depart-window",
+        default=None,
+        dest="depart_window",
+        metavar="START-END",
+        help="Keep departures whose local hour is in START-END inclusive (e.g. 6-20)",
     )
     flights.add_argument(
         "--fetch",
@@ -606,6 +831,121 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="Write JSON report atomically to FILE",
     )
 
+    dates = sub.add_parser(
+        "dates",
+        help="Cheapest fare per day for one route (EUR, compact table)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=DATES_EXAMPLES,
+    )
+    dates.add_argument("route", help="ORIGIN-DESTINATION (IATA codes)")
+    dates.add_argument(
+        "--from",
+        dest="start",
+        required=True,
+        help="First departure date (YYYY-MM-DD)",
+    )
+    dates.add_argument(
+        "--to",
+        dest="end",
+        required=True,
+        help=f"Last departure date (YYYY-MM-DD); window cap is {MAX_DATE_WINDOW_DAYS} days",
+    )
+    dates.add_argument(
+        "--max-stops",
+        type=int,
+        default=1,
+        choices=[0, 1],
+        help="Maximum stops (default 1)",
+    )
+    dates.add_argument(
+        "--adults",
+        type=int,
+        default=1,
+        help="Number of adults (default 1)",
+    )
+    dates.add_argument(
+        "--cabin",
+        default="economy",
+        choices=["economy", "premium-economy", "business", "first"],
+        help="Cabin class (default economy)",
+    )
+    dates.add_argument(
+        "--fetch",
+        default="sweep",
+        choices=["auto", "sweep", "detail"],
+        help="Calendar uses the compact date-grid RPC (sweep). detail is accepted and ignored.",
+    )
+    dates.add_argument(
+        "--save",
+        default=None,
+        metavar="FILE",
+        help="Write JSON report atomically to FILE",
+    )
+
+    explore = sub.add_parser(
+        "explore",
+        help="Cheap destinations from one origin (EUR shortlist)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=EXPLORE_EXAMPLES,
+    )
+    explore.add_argument("origin", help="Origin IATA code")
+    explore.add_argument(
+        "--from",
+        dest="start",
+        default=None,
+        help="Outbound date (YYYY-MM-DD)",
+    )
+    explore.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Trip length in days (default 7; used as the explore window label)",
+    )
+    explore.add_argument(
+        "--month",
+        default=None,
+        help="Use the first day of YYYY-MM and that month's length as --days",
+    )
+    explore.add_argument(
+        "--top",
+        type=int,
+        default=DEFAULT_EXPLORE_TOP,
+        help=f"Destinations to price (default {DEFAULT_EXPLORE_TOP})",
+    )
+    explore.add_argument(
+        "--max-stops",
+        type=int,
+        default=1,
+        choices=[0, 1],
+        help="Maximum stops when pricing a destination (default 1)",
+    )
+    explore.add_argument(
+        "--adults",
+        type=int,
+        default=1,
+        help="Number of adults (default 1)",
+    )
+    explore.add_argument(
+        "--cabin",
+        default="economy",
+        choices=["economy", "premium-economy", "business", "first"],
+        help="Cabin class (default economy)",
+    )
+    explore.add_argument(
+        "--save",
+        default=None,
+        metavar="FILE",
+        help="Write JSON report atomically to FILE",
+    )
+
+    airports = sub.add_parser(
+        "airports",
+        help="Offline IATA airport lookup",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=AIRPORTS_EXAMPLES,
+    )
+    airports.add_argument("query", help="IATA code or city/name fragment")
+
     try:
         args = parser.parse_args(list(argv) if argv is not None else None)
     except SystemExit as exc:
@@ -616,6 +956,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _run_flights(args)
     if args.cmd == "hotels":
         return _run_hotels(args)
+    if args.cmd == "dates":
+        return _run_dates(args)
+    if args.cmd == "explore":
+        return _run_explore(args)
+    if args.cmd == "airports":
+        return _run_airports(args)
 
     parser.print_help()
     return 1

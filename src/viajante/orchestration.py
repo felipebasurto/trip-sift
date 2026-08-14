@@ -20,7 +20,15 @@ BROWSER_UNAVAILABLE_MARKERS = (
     "no module named 'playwright'",
 )
 
-NON_RETRIABLE_CODES = frozenset({SearchErrorCode.NO_RESULTS, SearchErrorCode.BROWSER_UNAVAILABLE})
+NON_RETRIABLE_CODES = frozenset(
+    {
+        SearchErrorCode.NO_RESULTS,
+        SearchErrorCode.REJECTED,
+        SearchErrorCode.BLOCKED,
+        SearchErrorCode.MARKUP_DRIFT,
+        SearchErrorCode.BROWSER_UNAVAILABLE,
+    }
+)
 
 ERROR_MESSAGE_MAX_CHARS = 500
 

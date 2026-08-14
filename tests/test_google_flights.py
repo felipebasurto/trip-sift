@@ -882,11 +882,14 @@ class LiveShapedCompactTests(unittest.TestCase):
         self.assertEqual(card.stops, "1 stop")
         self.assertEqual(card.layover_city, "Lisbon")
         self.assertEqual(card.layover_hours, 18.0)
+        self.assertEqual(card.flight_numbers, ("TP1013", "TP1922"))
+        self.assertEqual(card.airline_codes, ("TP",))
         offer = _normalize_offer(card, max_stops=1)
         assert offer is not None
         self.assertEqual(offer.arrival, "09:00")
         self.assertEqual(offer.layover_city, "Lisbon")
         self.assertEqual(offer.layover_hours, 18.0)
+        self.assertEqual(offer.flight_numbers, ("TP1013", "TP1922"))
 
     def test_layover_from_legs_when_itinerary_block_is_missing(self) -> None:
         item = _tap_long_layover()
@@ -941,7 +944,7 @@ class LiveShapedCompactTests(unittest.TestCase):
         client = _FakeSweepClient(post_text=_error_response_body())
         source = GoogleFlightsHttpSource(client=client)
         with self.assertRaises(GoogleFlightsRejected):
-            source.fetch(FlightQuery("XXX", "YYY", date(2026, 9, 1), max_stops=1))
+            source.fetch(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1))
         self.assertEqual(client.gets, [])
 
 

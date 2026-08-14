@@ -78,7 +78,7 @@ LOW_COST_NAMES = [
 NO_RESULTS_MESSAGE = "Google Flights returned no flights for this route and date."
 REJECTED_MESSAGE = "Google Flights rejected this route or date (unknown airport or invalid query)."
 
-FlightSort = Literal["ranked", "fare"]
+FlightSort = Literal["ranked", "fare", "duration"]
 FetchMode = Literal["auto", "sweep", "detail"]
 SWEEP_BATCH_THRESHOLD = 3
 ROUTE_GRAMMAR = "ORIGIN-DESTINATION:DATE[,DATE...] or ORIGIN-DESTINATION:OUT:BACK"
@@ -99,13 +99,12 @@ def _needs_detail_fallback(result: QueryResult) -> bool:
     if not isinstance(result, QueryFailure):
         return False
     if result.error.code == SearchErrorCode.NO_RESULTS:
-        return result.error.message != REJECTED_MESSAGE
-    if result.error.code != SearchErrorCode.FETCH_FAILED:
-        return False
-    text = result.error.message.casefold()
-    if "markup" in text or "no results grid" in text:
-        return False
-    return True
+        return True
+    if result.error.code == SearchErrorCode.BLOCKED:
+        return True
+    if result.error.code == SearchErrorCode.FETCH_FAILED:
+        return True
+    return False
 
 
 def sweep_needs_fallback(report: SearchReport) -> bool:
@@ -120,8 +119,18 @@ def classify_failure(exc: BaseException) -> SearchError:
         )
     if isinstance(exc, GoogleFlightsRejected):
         return SearchError(
-            code=SearchErrorCode.NO_RESULTS,
+            code=SearchErrorCode.REJECTED,
             message=REJECTED_MESSAGE,
+        )
+    if isinstance(exc, GoogleFlightsBlocked):
+        return SearchError(
+            code=SearchErrorCode.BLOCKED,
+            message=str(exc) or "Google Flights blocked the request.",
+        )
+    if isinstance(exc, GoogleFlightsMarkupError):
+        return SearchError(
+            code=SearchErrorCode.MARKUP_DRIFT,
+            message=str(exc) or "Google Flights markup could not be parsed.",
         )
     return classify_provider_failure(exc, provider="Google Flights")
 
@@ -232,6 +241,95 @@ def is_low_cost(airline_text: str) -> bool:
     return any(pattern.search(text) for pattern in _LOW_COST_PATTERNS)
 
 
+AIRLINE_CODE_ALIASES = {
+    "AF": ("air france",),
+    "BA": ("british airways",),
+    "FR": ("ryanair",),
+    "I2": ("iberia express",),
+    "IB": ("iberia",),
+    "KL": ("klm",),
+    "LH": ("lufthansa",),
+    "RK": ("ryanair",),
+    "TO": ("transavia",),
+    "TP": ("tap", "tap air portugal"),
+    "U2": ("easyjet", "easy jet"),
+    "UX": ("air europa",),
+    "VY": ("vueling",),
+    "W6": ("wizz", "wizz air"),
+}
+
+
+def parse_airline_codes(text: Optional[str]) -> Optional[Tuple[str, ...]]:
+    if text is None:
+        return None
+    codes = tuple(part.strip().upper() for part in text.split(",") if part.strip())
+    if not codes:
+        raise ValueError("airline list must not be empty")
+    for code in codes:
+        if not (2 <= len(code) <= 3 and code.isalnum()):
+            raise ValueError(f"invalid airline code: {code!r}")
+    return codes
+
+
+def parse_depart_window(text: Optional[str]) -> Optional[Tuple[int, int]]:
+    if text is None:
+        return None
+    try:
+        start_text, end_text = text.split("-", 1)
+        start, end = int(start_text), int(end_text)
+    except ValueError as exc:
+        raise ValueError("depart window must look like 6-20") from exc
+    if not (0 <= start <= 23 and 0 <= end <= 23):
+        raise ValueError("depart window hours must be between 0 and 23")
+    if start > end:
+        raise ValueError("depart window start must be at or before the end hour")
+    return start, end
+
+
+def _airline_filter_hit(raw: RawFlightCard, token: str) -> bool:
+    needle = token.strip().upper()
+    codes = {code.upper() for code in (raw.airline_codes or ())}
+    if needle in codes:
+        return True
+    name = _normalize_airline(raw.airline)
+    if needle.casefold() in name:
+        return True
+    return any(alias in name for alias in AIRLINE_CODE_ALIASES.get(needle, ()))
+
+
+def _passes_airline_filters(
+    raw: RawFlightCard,
+    *,
+    airlines: Optional[Sequence[str]],
+    exclude_airlines: Optional[Sequence[str]],
+) -> bool:
+    if airlines and not any(_airline_filter_hit(raw, token) for token in airlines):
+        return False
+    if exclude_airlines and any(_airline_filter_hit(raw, token) for token in exclude_airlines):
+        return False
+    return True
+
+
+def _departure_hour(text: Optional[str]) -> Optional[int]:
+    clock = normalize_clock(text)
+    if not clock:
+        return None
+    try:
+        return int(clock.split(":", 1)[0])
+    except ValueError:
+        return None
+
+
+def _passes_depart_window(raw: RawFlightCard, window: Optional[Tuple[int, int]]) -> bool:
+    if window is None:
+        return True
+    hour = _departure_hour(raw.departure)
+    if hour is None:
+        return False
+    start, end = window
+    return start <= hour <= end
+
+
 def baggage_buffer_eur(
     airline_text: str,
     *,
@@ -253,12 +351,19 @@ def _normalize_offer(
     *,
     buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
     max_layover_hours: Optional[float] = None,
+    airlines: Optional[Sequence[str]] = None,
+    exclude_airlines: Optional[Sequence[str]] = None,
+    depart_window: Optional[Tuple[int, int]] = None,
 ) -> Optional[FlightOffer]:
     price_text = raw.price or ""
     price_eur = parse_price_eur(price_text)
     if price_eur is None or price_eur <= 0:
         return None
     if not _eligible_stops(raw.stops, max_stops):
+        return None
+    if not _passes_airline_filters(raw, airlines=airlines, exclude_airlines=exclude_airlines):
+        return None
+    if not _passes_depart_window(raw, depart_window):
         return None
     stops_count = parse_stops_count(raw.stops)
     layover_hours = raw.layover_hours
@@ -283,6 +388,7 @@ def _normalize_offer(
         stops_count=stops_count,
         layover_city=raw.layover_city,
         layover_hours=layover_hours,
+        flight_numbers=raw.flight_numbers,
         baggage_buffer_eur=baggage_buffer_eur(airline, buffer_eur=buffer_eur),
         needs_bag_verify=is_low_cost(airline),
     )
@@ -299,10 +405,12 @@ def _rank_offers(
     sort: FlightSort = "ranked",
 ) -> Tuple[FlightOffer, ...]:
     def sort_key(offer: FlightOffer) -> tuple[float, float]:
-        primary = offer.price_eur if sort == "fare" else _effective_cost(offer)
         duration = offer.duration_hours
         if duration is None:
             duration = UNKNOWN_DURATION_SORTS_LAST
+        if sort == "duration":
+            return (duration, offer.price_eur)
+        primary = offer.price_eur if sort == "fare" else _effective_cost(offer)
         return (primary, duration)
 
     rows = sorted(offers, key=sort_key)
@@ -343,6 +451,9 @@ def _run_search(
     fetch_backend: Optional[FetchBackend] = None,
     fetch_ms: Optional[int] = None,
     max_layover_hours: Optional[float] = None,
+    airlines: Optional[Sequence[str]] = None,
+    exclude_airlines: Optional[Sequence[str]] = None,
+    depart_window: Optional[Tuple[int, int]] = None,
 ) -> SearchReport:
     report_progress = progress or (lambda _: None)
     results: list[QueryResult] = []
@@ -365,6 +476,9 @@ def _run_search(
                             query.max_stops,
                             buffer_eur=buffer_eur,
                             max_layover_hours=max_layover_hours,
+                            airlines=airlines,
+                            exclude_airlines=exclude_airlines,
+                            depart_window=depart_window,
                         )
                     )
                     is not None
@@ -379,9 +493,7 @@ def _run_search(
             except Exception as exc:
                 failure = classify_failure(exc)
                 source.reset()
-                if failure.code in NON_RETRIABLE_CODES or isinstance(
-                    exc, (GoogleFlightsMarkupError, GoogleFlightsBlocked)
-                ):
+                if failure.code in NON_RETRIABLE_CODES:
                     break
                 if attempt + 1 < MAX_ATTEMPTS:
                     sleep(retry_backoff_seconds(attempt, random_gen))
@@ -434,6 +546,9 @@ def _search_with_source(
     sort: FlightSort,
     inter_query_delay: Callable[[random.Random], float],
     max_layover_hours: Optional[float] = None,
+    airlines: Optional[Sequence[str]] = None,
+    exclude_airlines: Optional[Sequence[str]] = None,
+    depart_window: Optional[Tuple[int, int]] = None,
 ) -> SearchReport:
     try:
         return _run_search(
@@ -450,6 +565,9 @@ def _search_with_source(
             sort=sort,
             inter_query_delay=inter_query_delay,
             max_layover_hours=max_layover_hours,
+            airlines=airlines,
+            exclude_airlines=exclude_airlines,
+            depart_window=depart_window,
         )
     finally:
         source.close()
@@ -464,6 +582,9 @@ def search_flights(
     sort: FlightSort = "ranked",
     fetch: FetchMode = "auto",
     max_layover_hours: Optional[float] = None,
+    airlines: Optional[Sequence[str]] = None,
+    exclude_airlines: Optional[Sequence[str]] = None,
+    depart_window: Optional[Tuple[int, int]] = None,
 ) -> SearchReport:
     if not queries:
         raise ValueError("at least one query is required")
@@ -473,8 +594,8 @@ def search_flights(
         raise ValueError("buffer_eur must not be negative")
     if max_layover_hours is not None and max_layover_hours < 0:
         raise ValueError("max_layover_hours must not be negative")
-    if sort not in ("ranked", "fare"):
-        raise ValueError("sort must be 'ranked' or 'fare'")
+    if sort not in ("ranked", "fare", "duration"):
+        raise ValueError("sort must be 'ranked', 'fare', or 'duration'")
     if fetch not in ("auto", "sweep", "detail"):
         raise ValueError("fetch must be 'auto', 'sweep', or 'detail'")
     planned = resolve_fetch_mode(fetch, len(queries))
@@ -492,6 +613,9 @@ def search_flights(
             sort=sort,
             inter_query_delay=sweep_inter_query_delay_seconds,
             max_layover_hours=max_layover_hours,
+            airlines=airlines,
+            exclude_airlines=exclude_airlines,
+            depart_window=depart_window,
         )
         retry_indexes = [
             index for index, result in enumerate(report.queries) if _needs_detail_fallback(result)
@@ -508,6 +632,9 @@ def search_flights(
                 sort=sort,
                 inter_query_delay=inter_query_delay_seconds,
                 max_layover_hours=max_layover_hours,
+                airlines=airlines,
+                exclude_airlines=exclude_airlines,
+                depart_window=depart_window,
             )
             merged = list(report.queries)
             for index, detail_result in zip(retry_indexes, detail_report.queries, strict=True):
@@ -533,6 +660,9 @@ def search_flights(
             sort=sort,
             inter_query_delay=inter_query_delay_seconds,
             max_layover_hours=max_layover_hours,
+            airlines=airlines,
+            exclude_airlines=exclude_airlines,
+            depart_window=depart_window,
         )
         backend = "detail"
     fetch_ms = max(0, int((time.perf_counter() - started) * 1000))

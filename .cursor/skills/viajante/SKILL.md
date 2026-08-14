@@ -20,7 +20,10 @@ After `uv sync` and `uv run playwright install chromium`, the entry point is ava
 ## Commands
 
 ```bash
-uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare}] [--fetch {auto,sweep,detail}] [--max-layover HOURS] [--save FILE]
+uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare,duration}] [--airlines CODES] [--exclude-airlines CODES] [--depart-window START-END] [--fetch {auto,sweep,detail}] [--max-layover HOURS] [--save FILE]
+uv run viajante dates ORIGIN-DEST --from YYYY-MM-DD --to YYYY-MM-DD [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--save FILE]
+uv run viajante explore ORIGIN --from YYYY-MM-DD [--days N] [--month YYYY-MM] [--top N] [--save FILE]
+uv run viajante airports QUERY
 uv run viajante hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
 ```
 
@@ -34,6 +37,9 @@ uv run python -m unittest discover -s tests -v
 
 # Fast HTTP shortlist (no Chromium)
 uv run viajante flights MAD-BCN:2026-09-01 --fetch sweep --top 3
+uv run viajante dates MAD-BCN --from 2026-09-01 --to 2026-09-14 --fetch sweep
+uv run viajante explore MAD --from 2026-09-01 --days 7
+uv run viajante airports MAD
 
 # Playwright max evidence
 uv run viajante flights MAD-BCN:2026-12-04 --fetch detail --top 3
@@ -69,6 +75,8 @@ Each route and each comma-separated date is a separate sequential query. `--max-
 - **auto** (default): sweep when the invocation has 3+ flight queries, detail for 1–2. If sweep returns empty or a block, fall back to detail once for those legs only (`fetch_backend: sweep_then_detail` on stderr and in `--save` JSON). Unknown airports / shopping rejects and compact markup misses fail immediately without Chromium.
 
 Use sweep to shortlist a 10–20 route batch. Use `--fetch detail` (or a second invocation) when the user asks for times, bags, or the full card set. Do not mix backends across legs of one report unless that fallback fired.
+
+For “when is this route cheap?” use `viajante dates ORIGIN-DEST --from --to` (31-day cap, one cheapest-EUR row per day). For “where is cheap from this airport?” use `viajante explore ORIGIN --from --days`. Do not brute-force comma date lists or every airport when these commands exist. `viajante airports london` resolves IATA codes offline.
 
 ## Timing
 
@@ -139,6 +147,9 @@ viajante does not scrape Kayak, Lastminute, or hotel official sites. After Booki
 | Situation | Action |
 |-----------|--------|
 | `no_results` | Stop. Do not retry. Do not wait. |
+| `rejected` | Stop. The route or date was invalid. Check IATA codes with `viajante airports`. |
+| `blocked` | Wait 30-60 minutes. Sweep may have already fallen back to detail once. |
+| `markup_drift` | Stop. Do not retry the same parse. |
 | `(no eligible offers)` / `(no eligible stays)` with exit 0 | Widen filters or try other dates. Do not retry the same query as a fetch failure. |
 | `browser_unavailable` | Run `uv run playwright install chromium`. |
 | `fetch_failed` / exit 2 | Wait 30-60 minutes. Retry failed queries only. For Booking, inspect `booking-last-failure.html` in the state dir before retrying. |

@@ -325,6 +325,28 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("Lisbon", output)
         self.assertIn("18h", output)
 
+    def test_filter_flags_reach_the_search(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                main(
+                    [
+                        "flights",
+                        ROUTE,
+                        "--airlines",
+                        "IB,I2",
+                        "--exclude-airlines",
+                        "FR,RK",
+                        "--depart-window",
+                        "7-12",
+                        "--sort",
+                        "duration",
+                    ]
+                )
+        self.assertEqual(search.call_args.kwargs["airlines"], ("IB", "I2"))
+        self.assertEqual(search.call_args.kwargs["exclude_airlines"], ("FR", "RK"))
+        self.assertEqual(search.call_args.kwargs["depart_window"], (7, 12))
+        self.assertEqual(search.call_args.kwargs["sort"], "duration")
+
     def test_fetch_flag_reaches_the_search(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()) as search:
             with patch("viajante.cli._print_report"):
@@ -401,6 +423,10 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("--fetch", help_text)
         self.assertIn("--fetch sweep", help_text)
         self.assertIn("--max-layover", help_text)
+        self.assertIn("--airlines", help_text)
+        self.assertIn("--exclude-airlines", help_text)
+        self.assertIn("--depart-window", help_text)
+        self.assertIn("duration", help_text)
 
     def test_root_help_preserves_flight_examples_and_lists_subcommands(self) -> None:
         buffer = io.StringIO()
@@ -410,6 +436,9 @@ class ReportRenderingTests(unittest.TestCase):
         help_text = buffer.getvalue()
         self.assertIn("flights", help_text)
         self.assertIn("hotels", help_text)
+        self.assertIn("dates", help_text)
+        self.assertIn("explore", help_text)
+        self.assertIn("airports", help_text)
         self.assertIn("Examples:", help_text)
         self.assertIn("viajante flights MAD-BCN", help_text)
 
@@ -466,18 +495,26 @@ class PublicApiTests(unittest.TestCase):
             "CancellationEvidence",
             "PropertyTypeEvidence",
             "search_hotels",
+            "search_dates",
+            "search_explore",
+            "lookup_airports",
         ):
             self.assertTrue(hasattr(viajante, name), msg=name)
         self.assertEqual(
             set(viajante.__all__),
             {
+                "CancellationEvidence",
+                "DateCalendarReport",
+                "ExploreReport",
                 "FlightQuery",
-                "SearchReport",
-                "search_flights",
                 "HotelQuery",
                 "HotelSearchReport",
-                "CancellationEvidence",
                 "PropertyTypeEvidence",
+                "SearchReport",
+                "lookup_airports",
+                "search_dates",
+                "search_explore",
+                "search_flights",
                 "search_hotels",
             },
         )

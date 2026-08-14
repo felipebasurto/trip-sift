@@ -14,6 +14,9 @@
 - Flags or printed tables: `src/viajante/cli.py`
 - Domain types or JSON keys: `src/viajante/models.py`
 - Raw card text to numbers/enums: `src/viajante/parsers.py`
+- Offline IATA lookup: `src/viajante/airports.py`
+- Cheapest-per-day calendar: `src/viajante/dates.py`
+- Explore destinations from an origin: `src/viajante/explore.py`
 
 `google_flights.py` owns URL building, consent, card parsing, typed provider failures, the sweep HTTP client, and `GoogleFlightsSource`. `google_flights_rpc.py` owns the compact shopping request and `wrb.fr` parse. `booking.py` owns Booking.com URL/chips, consent, card extract, and `BookingHotelsSource`. Session lifecycle lives in `browser.py`. `flights.py` and `hotels.py` are the search loops: pure and offline-testable outside the browser source.
 
@@ -24,7 +27,7 @@
 - Sweep must not use the 4.5s browser delay (inter-query delay is 0). Sweep must work with no Playwright/Chromium install. One lazy Chromium per process, and only when detail actually runs. Flights block images, media, and fonts. Booking blocks images and media only (fonts stay; they can be required to render the list). Do not spoof a stale Chrome/macOS user-agent; use Playwright's Chromium UA for detail.
 - Detail delays: 4.5s + up to 1.5s jitter between queries; 3 attempts with 8s exponential backoff + jitter; browser reset after each failed attempt.
 - No flags to shorten detail delays or parallelize requests. Progress output is allowed and goes to stderr.
-- Retry only what can succeed on a second try. `NO_RESULTS`, `BROWSER_UNAVAILABLE`, owned Google markup drift (`GoogleFlightsMarkupError`, still reported as `fetch_failed`), HTTP sweep blocks (`GoogleFlightsBlocked`, still `fetch_failed`), and Booking card-wait timeouts (`BookingResultsTimeout`, still `fetch_failed`) fail immediately. Do not hammer Booking after a challenge page.
+- Retry only what can succeed on a second try. `no_results`, `rejected`, `blocked`, `markup_drift`, and `browser_unavailable` fail immediately (no second attempt). Booking card-wait timeouts (`BookingResultsTimeout`, still `fetch_failed`) also fail immediately. Do not hammer Booking after a challenge page. Sweep empty or `blocked` may still fall back to detail once; `rejected` and `markup_drift` do not.
 - Every offer keeps raw text beside parsed fields (`price`/`price_eur`, `duration`/`duration_hours`, `stops`/`stops_count`). Sweep and detail clocks are 24-hour `HH:MM`. 1-stop cards may also carry `layover_city` / `layover_hours`.
 - JSON output only with `--save`. Browser state lives outside the checkout (`VIAJANTE_STATE_DIR` or XDG state dir), and is always written to a temp file and renamed. Booking fetch failures dump `booking-last-failure.html` / `.txt` there for diagnosis; do not commit those files.
 
@@ -33,7 +36,8 @@
 - Sweep is the fast shortlist (owned shopping RPC, Chrome TLS session, HTML fallback, no Chromium). Detail is max evidence (Playwright, full card set, current delays). Keep EUR, `hl=en` for flights, ranked/fare sort, and the baggage buffer in both modes. Card parsing is owned by viajante and keeps raw stop/price labels. This does not apply to hotels, which use `lang=es` against our own parser.
 - The flight scrape locale is `hl=en` with `locale="en-US"` for stable rendered evidence and the existing JSON `locale: "en"` contract. Currency comes from `curr=EUR`, independently of `hl`.
 - `max_stops` is 0 or 1 per query; filtering follows each query's value. `--max-layover` (hours) drops 1-stop offers whose layover exceeds that cap on both sweep and detail; nonstops stay. Flights stay one-way; `adults` and `cabin` are query fields (CLI `--adults` / `--cabin`). `ORIGIN-DEST:OUT:BACK` is sugar for two one-way queries (out then return), not a round-trip `tfs`.
-- The baggage buffer is an input (`--baggage-buffer`, default 70 EUR), not a constant. A non-zero buffer implies `needs_bag_verify`. Default `--sort ranked` selects `--top` by fare+buffer; `--sort fare` uses fare. The ranked total must be visible when a buffer was added. Callers must verify baggage on Google Flights before booking.
+- The baggage buffer is an input (`--baggage-buffer`, default 70 EUR), not a constant. A non-zero buffer implies `needs_bag_verify`. Default `--sort ranked` selects `--top` by fare+buffer; `--sort fare` uses fare; `--sort duration` uses elapsed time. `--airlines`, `--exclude-airlines`, and `--depart-window` are local post-filters after parse, before `--top`. The ranked total must be visible when a buffer was added. Callers must verify baggage on Google Flights before booking.
+- `viajante dates ORIGIN-DEST --from DATE --to DATE` is the cheapest-per-day table (date-grid RPC, 31-day cap). `viajante explore ORIGIN --from DATE --days N` is the dest shortlist from the Explore catalog, then a priced `--top`. `viajante airports QUERY` is offline IATA lookup. `FlightQuery` rejects unknown codes.
 - The low-cost carrier list is partial. Absence from it is not evidence that a fare includes a bag.
 
 ### Hotels
@@ -59,7 +63,7 @@ uv run ruff check src tests
 
 `tests/test_google_flights.py` pins owned TFS encoding, the compact shopping fixture → `RawFlightCard` seam, and HTML fallback. Test the owned boundary (`RawFlightCard`, typed empty/markup/block failures), not upstream HTML rewriting. `tests/test_booking.py` is the Booking page seam (`build_applied_filters`, cards, empty vs markup). `tests/test_hotels.py` is eligibility, ranking, and the search loop.
 
-`tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output.
+`tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output. `tests/test_dates.py`, `tests/test_explore.py`, and `tests/test_airports.py` cover the calendar window, explore catalog, and offline IATA lookup.
 
 ## Trip-planning search strategy
 
