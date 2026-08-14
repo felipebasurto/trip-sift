@@ -37,6 +37,8 @@ Examples:
   viajante flights MAD-OPO:2026-10-09:2026-10-12
   viajante flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
   viajante flights MAD-BCN:2026-09-01,2026-09-02 --top 5 --sort fare --save results/search.json
+  viajante flights MAD-BCN:2026-09-01 --fetch sweep
+  viajante flights MAD-BCN:2026-09-01 --fetch detail
 """
 
 HOTELS_EXAMPLES = """\
@@ -406,6 +408,7 @@ def _run_flights(args: argparse.Namespace) -> int:
         buffer_eur=args.baggage_buffer,
         progress=lambda line: print(line, file=sys.stderr),
         sort=args.sort,
+        fetch=args.fetch,
     )
     _print_report(report, sort=args.sort)
 
@@ -498,6 +501,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default="ranked",
         choices=["ranked", "fare"],
         help="Order and select --top by ranked total (default) or fare",
+    )
+    flights.add_argument(
+        "--fetch",
+        default="auto",
+        choices=["auto", "sweep", "detail"],
+        help=(
+            "sweep is a fast HTTP shortlist (owned shopping RPC, Chrome TLS session); "
+            "detail is the Playwright scrape. "
+            "auto uses sweep for 3+ queries and detail for 1-2 (default auto)"
+        ),
     )
     flights.add_argument(
         "--save",

@@ -119,7 +119,7 @@ class ChromiumSessionTests(unittest.TestCase):
             )
 
             with (
-                patch("viajante.browser.sync_playwright", return_value=starter),
+                patch("viajante.browser._sync_playwright", return_value=starter),
                 patch("viajante.browser.atexit.register") as register,
             ):
                 first = session._ensure_context()
@@ -160,7 +160,7 @@ class ChromiumSessionTests(unittest.TestCase):
                     user_agent="TestAgent/1.0",
                 ),
             )
-            with patch("viajante.browser.sync_playwright", return_value=starter):
+            with patch("viajante.browser._sync_playwright", return_value=starter):
                 session._ensure_context()
 
         self.assertEqual(

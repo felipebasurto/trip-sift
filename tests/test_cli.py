@@ -294,6 +294,18 @@ class ReportRenderingTests(unittest.TestCase):
                 main(["flights", ROUTE, "--sort", "fare"])
         self.assertEqual(search.call_args.kwargs["sort"], "fare")
 
+    def test_fetch_flag_reaches_the_search(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                main(["flights", ROUTE, "--fetch", "sweep"])
+        self.assertEqual(search.call_args.kwargs["fetch"], "sweep")
+
+    def test_fetch_defaults_to_auto(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                main(["flights", ROUTE])
+        self.assertEqual(search.call_args.kwargs["fetch"], "auto")
+
     def test_rt_sugar_builds_return_leg(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()) as search:
             with patch("viajante.cli._print_report"):
@@ -355,6 +367,8 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("viajante flights MAD-BCN", help_text)
         self.assertIn("MAD-OPO:2026-10-09:2026-10-12", help_text)
         self.assertIn("--sort", help_text)
+        self.assertIn("--fetch", help_text)
+        self.assertIn("--fetch sweep", help_text)
 
     def test_root_help_preserves_flight_examples_and_lists_subcommands(self) -> None:
         buffer = io.StringIO()

@@ -6,6 +6,9 @@ from viajante.models import SearchError, SearchErrorCode
 
 REQUEST_DELAY_SECONDS = 4.5
 REQUEST_JITTER_SECONDS = 1.5
+# HTTP sweep is not a visible browser scrape; do not inherit the 4.5s pace.
+SWEEP_DELAY_SECONDS = 0.0
+SWEEP_JITTER_SECONDS = 0.0
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_SECONDS = 8.0
 BACKOFF_JITTER_SECONDS = 3.0
@@ -51,3 +54,7 @@ def retry_backoff_seconds(attempt: int, random_gen) -> float:
 
 def inter_query_delay_seconds(random_gen) -> float:
     return REQUEST_DELAY_SECONDS + random_gen.uniform(0, REQUEST_JITTER_SECONDS)
+
+
+def sweep_inter_query_delay_seconds(random_gen) -> float:
+    return SWEEP_DELAY_SECONDS + random_gen.uniform(0, SWEEP_JITTER_SECONDS)

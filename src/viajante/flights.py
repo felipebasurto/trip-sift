@@ -10,12 +10,15 @@ from pathlib import Path
 from typing import Callable, Literal, Optional, Protocol, Sequence, Tuple
 
 from viajante.google_flights import (
+    GoogleFlightsBlocked,
+    GoogleFlightsHttpSource,
     GoogleFlightsMarkupError,
     GoogleFlightsSource,
     NoFlightsFound,
     RawFlightCard,
 )
 from viajante.models import (
+    FetchBackend,
     FlightCabin,
     FlightOffer,
     FlightQuery,
@@ -31,6 +34,7 @@ from viajante.orchestration import (
     NON_RETRIABLE_CODES,
     inter_query_delay_seconds,
     retry_backoff_seconds,
+    sweep_inter_query_delay_seconds,
 )
 from viajante.orchestration import (
     classify_failure as classify_provider_failure,
@@ -68,8 +72,27 @@ LOW_COST_NAMES = [
 NO_RESULTS_MESSAGE = "Google Flights returned no flights for this route and date."
 
 FlightSort = Literal["ranked", "fare"]
+FetchMode = Literal["auto", "sweep", "detail"]
+SWEEP_BATCH_THRESHOLD = 3
 ROUTE_GRAMMAR = "ORIGIN-DESTINATION:DATE[,DATE...] or ORIGIN-DESTINATION:OUT:BACK"
 _RT_DATES = re.compile(r"^(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$")
+
+
+def resolve_fetch_mode(fetch: FetchMode, query_count: int) -> Literal["sweep", "detail"]:
+    if fetch == "auto":
+        return "sweep" if query_count >= SWEEP_BATCH_THRESHOLD else "detail"
+    if fetch in ("sweep", "detail"):
+        return fetch
+    raise ValueError("fetch must be 'auto', 'sweep', or 'detail'")
+
+
+def sweep_needs_fallback(report: SearchReport) -> bool:
+    for result in report.queries:
+        if isinstance(result, QueryFailure):
+            return True
+        if isinstance(result, QuerySuccess) and result.raw_count == 0:
+            return True
+    return False
 
 
 def classify_failure(exc: BaseException) -> SearchError:
@@ -81,7 +104,14 @@ def classify_failure(exc: BaseException) -> SearchError:
     return classify_provider_failure(exc, provider="Google Flights")
 
 
+class _SourceConfig(Protocol):
+    html_lang: str
+    currency: str
+
+
 class _FlightSource(Protocol):
+    config: _SourceConfig
+
     def fetch(self, query: FlightQuery) -> Sequence[RawFlightCard]: ...
 
     def reset(self) -> None: ...
@@ -274,6 +304,9 @@ def _run_search(
     locale: str = "en",
     currency: str = "EUR",
     sort: FlightSort = "ranked",
+    inter_query_delay: Callable[[random.Random], float] = inter_query_delay_seconds,
+    fetch_backend: Optional[FetchBackend] = None,
+    fetch_ms: Optional[int] = None,
 ) -> SearchReport:
     report_progress = progress or (lambda _: None)
     results: list[QueryResult] = []
@@ -303,7 +336,9 @@ def _run_search(
             except Exception as exc:
                 failure = classify_failure(exc)
                 source.reset()
-                if failure.code in NON_RETRIABLE_CODES or isinstance(exc, GoogleFlightsMarkupError):
+                if failure.code in NON_RETRIABLE_CODES or isinstance(
+                    exc, (GoogleFlightsMarkupError, GoogleFlightsBlocked)
+                ):
                     break
                 if attempt + 1 < MAX_ATTEMPTS:
                     sleep(retry_backoff_seconds(attempt, random_gen))
@@ -319,32 +354,43 @@ def _run_search(
             report_progress(f"  {outcome.error.code.value}: {outcome.error.message}")
         results.append(outcome)
         if index + 1 < len(queries):
-            sleep(inter_query_delay_seconds(random_gen))
+            sleep(inter_query_delay(random_gen))
     return SearchReport(
         searched_at=now(),
         queries=tuple(results),
         locale=locale,
         currency=currency,
+        fetch_backend=fetch_backend,
+        fetch_ms=fetch_ms,
     )
 
 
-def search_flights(
+def _attach_fetch_meta(
+    report: SearchReport,
+    *,
+    fetch_backend: FetchBackend,
+    fetch_ms: int,
+) -> SearchReport:
+    return SearchReport(
+        searched_at=report.searched_at,
+        queries=report.queries,
+        locale=report.locale,
+        currency=report.currency,
+        fetch_backend=fetch_backend,
+        fetch_ms=fetch_ms,
+    )
+
+
+def _search_with_source(
     queries: Sequence[FlightQuery],
     *,
-    top: int = 8,
-    buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
-    progress: Optional[Callable[[str], None]] = None,
-    sort: FlightSort = "ranked",
+    source: _FlightSource,
+    top: int,
+    buffer_eur: int,
+    progress: Optional[Callable[[str], None]],
+    sort: FlightSort,
+    inter_query_delay: Callable[[random.Random], float],
 ) -> SearchReport:
-    if not queries:
-        raise ValueError("at least one query is required")
-    if top <= 0:
-        raise ValueError("top must be positive")
-    if buffer_eur < 0:
-        raise ValueError("buffer_eur must not be negative")
-    if sort not in ("ranked", "fare"):
-        raise ValueError("sort must be 'ranked' or 'fare'")
-    source = GoogleFlightsSource(default_state_dir())
     try:
         return _run_search(
             queries,
@@ -358,9 +404,75 @@ def search_flights(
             locale=source.config.html_lang,
             currency=source.config.currency,
             sort=sort,
+            inter_query_delay=inter_query_delay,
         )
     finally:
         source.close()
+
+
+def search_flights(
+    queries: Sequence[FlightQuery],
+    *,
+    top: int = 8,
+    buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
+    progress: Optional[Callable[[str], None]] = None,
+    sort: FlightSort = "ranked",
+    fetch: FetchMode = "auto",
+) -> SearchReport:
+    if not queries:
+        raise ValueError("at least one query is required")
+    if top <= 0:
+        raise ValueError("top must be positive")
+    if buffer_eur < 0:
+        raise ValueError("buffer_eur must not be negative")
+    if sort not in ("ranked", "fare"):
+        raise ValueError("sort must be 'ranked' or 'fare'")
+    if fetch not in ("auto", "sweep", "detail"):
+        raise ValueError("fetch must be 'auto', 'sweep', or 'detail'")
+    planned = resolve_fetch_mode(fetch, len(queries))
+    report_progress = progress or (lambda _: None)
+    started = time.perf_counter()
+    if planned == "sweep":
+        noun = "query" if len(queries) == 1 else "queries"
+        report_progress(f"fetch: sweep ({len(queries)} {noun})")
+        report = _search_with_source(
+            queries,
+            source=GoogleFlightsHttpSource(),
+            top=top,
+            buffer_eur=buffer_eur,
+            progress=progress,
+            sort=sort,
+            inter_query_delay=sweep_inter_query_delay_seconds,
+        )
+        if sweep_needs_fallback(report):
+            report_progress("sweep empty/markup/block; falling back to detail")
+            report = _search_with_source(
+                queries,
+                source=GoogleFlightsSource(default_state_dir()),
+                top=top,
+                buffer_eur=buffer_eur,
+                progress=progress,
+                sort=sort,
+                inter_query_delay=inter_query_delay_seconds,
+            )
+            backend: FetchBackend = "sweep_then_detail"
+        else:
+            backend = "sweep"
+    else:
+        noun = "query" if len(queries) == 1 else "queries"
+        report_progress(f"fetch: detail ({len(queries)} {noun})")
+        report = _search_with_source(
+            queries,
+            source=GoogleFlightsSource(default_state_dir()),
+            top=top,
+            buffer_eur=buffer_eur,
+            progress=progress,
+            sort=sort,
+            inter_query_delay=inter_query_delay_seconds,
+        )
+        backend = "detail"
+    fetch_ms = max(0, int((time.perf_counter() - started) * 1000))
+    return _attach_fetch_meta(report, fetch_backend=backend, fetch_ms=fetch_ms)
 
 
 def write_report_atomic(report: SearchReport, destination: Path) -> None:
