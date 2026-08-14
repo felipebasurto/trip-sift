@@ -7,7 +7,7 @@
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-52636B">
 </p>
 
-Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. Flights have two fetch modes: **sweep** is a fast HTTP shortlist, **detail** is the Playwright scrape for max evidence. Hotels still use a local Chromium on Booking.com. Offers keep the scraped text next to every parsed number. Query encoding and card parsing are owned by viajante. It is built for scripts and agents that need structured prices, not for browsing.
+Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. Flights have two fetch modes: **sweep** is a fast HTTP shortlist (Chrome TLS/HTTP/2 impersonation and a compact results payload), **detail** is the Playwright scrape for max evidence. Hotels still use a local Chromium on Booking.com. Offers keep the scraped text next to every parsed number. Query encoding and card parsing are owned by viajante. It is built for scripts and agents that need structured prices, not for browsing.
 
 The name is Spanish for the travelling salesman: shortlist routes, don't brute-force every combination.
 
@@ -37,7 +37,7 @@ uv run viajante flights MAD-BCN:2026-09-01 --fetch sweep
       131 €  3 hr 55 min  1 stop  14:05 -> 18:00     Air Europa
 ```
 
-One adult, one-way, economy. Up to eight offers per query, ordered by ranked total (fare plus baggage buffer). Vueling is cheaper on fare, but the buffer puts it behind Iberia at 109 € ranked. Pass `--sort fare` to order by cabin fare, or `--baggage-buffer 0` to rank on fare alone. `MAD-OPO:2026-10-09:2026-10-12` expands to outbound plus return as two one-way queries. `--fetch sweep` is the fast HTTP shortlist (no Chromium). `--fetch detail` is the full Playwright scrape. `--fetch auto` (default) uses sweep for 3+ queries and detail for 1–2; if sweep comes back empty, blocked, or markup-drifted, viajante falls back to detail once. Nothing is written to disk unless you ask for it.
+One adult, one-way, economy. Up to eight offers per query, ordered by ranked total (fare plus baggage buffer). Vueling is cheaper on fare, but the buffer puts it behind Iberia at 109 € ranked. Pass `--sort fare` to order by cabin fare, or `--baggage-buffer 0` to rank on fare alone. `MAD-OPO:2026-10-09:2026-10-12` expands to outbound plus return as two one-way queries. `--fetch sweep` is the fast HTTP shortlist: one Chrome-impersonating session, compact shopping RPC, HTML card parse only if that misses (no Chromium). `--fetch detail` is the full Playwright scrape. `--fetch auto` (default) uses sweep for 3+ queries and detail for 1–2; if sweep comes back empty, blocked, or markup-drifted, viajante falls back to detail once. Nothing is written to disk unless you ask for it.
 
 ## Search hotels
 
@@ -71,7 +71,7 @@ The output separates what you asked for (`Filters`), what Booking was actually t
   <img src="docs/assets/how-viajante-works.svg" alt="viajante data flow from user to typed results" width="100%">
 </p>
 
-You or an agent pass a route and dates. The CLI validates the input before any browser starts. A 3+ query flight batch uses HTTP sweep by default (no 4.5s pause between legs). One or two flight queries, `--fetch detail`, or a sweep fallback uses one local Chromium session with images, media, and fonts blocked. Offers come back ranked, and consent cookies stay in your state directory rather than in this checkout.
+You or an agent pass a route and dates. The CLI validates the input before any browser starts. A 3+ query flight batch uses HTTP sweep by default: one keep-alive Chrome TLS/HTTP/2 session, compact shopping parse, no 4.5s pause between legs. One or two flight queries, `--fetch detail`, or a sweep fallback uses one local Chromium session with images, media, and fonts blocked. Offers come back ranked, and consent cookies stay in your state directory rather than in this checkout.
 
 ## Compare dates and save JSON
 
@@ -97,7 +97,7 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 | `--top` | `8` | Offers kept per query after ranking and deduplication. |
 | `--baggage-buffer` | `70` | EUR added to low-cost fares when ranking. `0` ranks on fare alone. |
 | `--sort` | `ranked` | `ranked` uses fare+buffer for `--top`; `fare` uses cabin fare. |
-| `--fetch` | `auto` | `sweep` = fast HTTP shortlist; `detail` = Playwright max evidence. `auto` picks sweep for 3+ queries, detail for 1–2. |
+| `--fetch` | `auto` | `sweep` = Chrome-impersonating HTTP shortlist (compact payload, HTML fallback); `detail` = Playwright max evidence. `auto` picks sweep for 3+ queries, detail for 1–2. |
 | `--save FILE` | off | Write the JSON report atomically. |
 
 | `hotels` flag | Default | Behavior |
@@ -243,7 +243,7 @@ uv run python -m unittest discover -s tests -v
 uv run ruff check src tests
 ```
 
-Fully offline. They never launch Chromium and never touch the network. `tests/test_google_flights.py` pins query encoding and drives synthetic markup — including HTTP sweep fixtures — through the owned Google Flights card parser. CI runs the suite on Python 3.10 through 3.14.
+Fully offline. They never launch Chromium and never touch the network. `tests/test_google_flights.py` pins query encoding and drives synthetic compact shopping bodies plus HTML markup through the owned parsers. CI runs the suite on Python 3.10 through 3.14.
 
 ## Privacy boundary
 

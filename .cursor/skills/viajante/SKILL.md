@@ -64,7 +64,7 @@ Each route and each comma-separated date is a separate sequential query. `--max-
 
 ## Fetch modes (flights)
 
-- **sweep**: HTTP GET of the owned Google Flights URL. Fast shortlist. No Chromium. No 4.5s inter-query delay.
+- **sweep**: one Chrome-impersonating HTTP/2 session. POST the compact shopping RPC, parse `wrb.fr` itineraries, fall back to the owned HTML card parser only if that misses. Fast shortlist. No Chromium. No 4.5s inter-query delay.
 - **detail**: existing Playwright path. Max evidence (times, bags, full card set). Current 4.5s+jitter pacing.
 - **auto** (default): sweep when the invocation has 3+ flight queries, detail for 1–2. If sweep returns empty, markup drift, or a block, fall back to detail once (`fetch_backend: sweep_then_detail` on stderr and in `--save` JSON).
 

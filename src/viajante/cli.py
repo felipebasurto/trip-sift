@@ -507,7 +507,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default="auto",
         choices=["auto", "sweep", "detail"],
         help=(
-            "sweep is a fast HTTP shortlist; detail is the Playwright scrape. "
+            "sweep is a fast HTTP shortlist (Chrome impersonation + compact parse); "
+            "detail is the Playwright scrape. "
             "auto uses sweep for 3+ queries and detail for 1-2 (default auto)"
         ),
     )

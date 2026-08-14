@@ -10,12 +10,20 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Optional
+from typing import Mapping, Optional, Protocol
 from urllib.parse import urlencode
 
+from curl_cffi import requests as curl_requests
 from selectolax.lexbor import LexborHTMLParser
 
 from viajante.browser import BrowserSessionConfig, ChromiumSession
+from viajante.google_flights_rpc import (
+    SHOPPING_POST_HEADERS,
+    CompactParseMiss,
+    EmptyShoppingResults,
+    build_shopping_request,
+    parse_shopping_body,
+)
 from viajante.models import FlightQuery
 from viajante.tfs import encode_tfs
 
@@ -37,11 +45,14 @@ HTTP_USER_AGENT = (
     "Chrome/131.0.0.0 Safari/537.36"
 )
 HTTP_HEADERS = {
-    "User-Agent": HTTP_USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
+}
+# urllib fallback / tests only. Production sweep uses curl_cffi Chrome impersonation.
+URLLIB_HEADERS = {
+    **HTTP_HEADERS,
+    "User-Agent": HTTP_USER_AGENT,
     "Accept-Encoding": "gzip, deflate",
-    "Cache-Control": "no-cache",
 }
 
 BLOCK_URL_MARKERS = ("consent.google", "/sorry/", "ipv4.google.com/sorry")
@@ -183,13 +194,135 @@ def _decode_http_body(raw: bytes, content_encoding: str) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+@dataclass(frozen=True)
+class SweepHttpResponse:
+    status: int
+    text: str
+    url: str = ""
+
+
+class SweepHttpClient(Protocol):
+    def get(self, url: str, *, timeout: float) -> SweepHttpResponse: ...
+
+    def post(
+        self,
+        url: str,
+        *,
+        data: str,
+        headers: Mapping[str, str],
+        timeout: float,
+    ) -> SweepHttpResponse: ...
+
+    def close(self) -> None: ...
+
+
+class ChromeSweepClient:
+    """One curl_cffi session: Chrome TLS/HTTP/2 impersonation and keep-alive."""
+
+    def __init__(self) -> None:
+        self._session = curl_requests.Session(impersonate="chrome")
+
+    def get(self, url: str, *, timeout: float) -> SweepHttpResponse:
+        response = self._session.get(url, timeout=timeout, allow_redirects=True)
+        return SweepHttpResponse(
+            status=int(response.status_code),
+            text=response.text,
+            url=str(response.url),
+        )
+
+    def post(
+        self,
+        url: str,
+        *,
+        data: str,
+        headers: Mapping[str, str],
+        timeout: float,
+    ) -> SweepHttpResponse:
+        response = self._session.post(
+            url,
+            data=data,
+            headers=dict(headers),
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        return SweepHttpResponse(
+            status=int(response.status_code),
+            text=response.text,
+            url=str(response.url),
+        )
+
+    def close(self) -> None:
+        self._session.close()
+
+
+class _OpenerSweepClient:
+    """Test hook: urllib opener for HTML GET. POST is treated as a compact miss."""
+
+    def __init__(self, opener: urllib.request.OpenerDirector) -> None:
+        self._opener = opener
+
+    def get(self, url: str, *, timeout: float) -> SweepHttpResponse:
+        html, final_url, status = _opener_get(url, opener=self._opener, timeout=timeout)
+        return SweepHttpResponse(status=status, text=html, url=final_url)
+
+    def post(
+        self,
+        url: str,
+        *,
+        data: str,
+        headers: Mapping[str, str],
+        timeout: float,
+    ) -> SweepHttpResponse:
+        raise CompactParseMiss("opener client has no shopping POST")
+
+    def close(self) -> None:
+        return None
+
+
+def _raise_if_blocked(status: int, body: str, final_url: str, fallback_url: str) -> None:
+    if status in {403, 429, 503}:
+        raise GoogleFlightsBlocked(f"Google Flights HTTP {status} from {fallback_url}")
+    if status >= 400:
+        raise GoogleFlightsBlocked(f"Google Flights HTTP {status} from {final_url or fallback_url}")
+    if looks_blocked(body, final_url):
+        raise GoogleFlightsBlocked(
+            f"Google Flights blocked the sweep at {final_url or fallback_url}"
+        )
+
+
+def _opener_get(
+    url: str,
+    *,
+    opener: urllib.request.OpenerDirector,
+    timeout: float,
+) -> tuple[str, str, int]:
+    request = urllib.request.Request(url, headers=URLLIB_HEADERS)
+    try:
+        response = opener.open(request, timeout=timeout)
+        with response:
+            raw = response.read()
+            encoding = response.headers.get("Content-Encoding", "")
+            final_url = response.geturl()
+            status = getattr(response, "status", 200)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {403, 429, 503}:
+            raise GoogleFlightsBlocked(f"Google Flights HTTP {exc.code} from {url}") from exc
+        raise
+    return _decode_http_body(raw, encoding), final_url, status
+
+
 def fetch_search_html(
     url: str,
     *,
     opener: Optional[urllib.request.OpenerDirector] = None,
+    client: Optional[SweepHttpClient] = None,
     timeout: float = HTTP_TIMEOUT_SECONDS,
 ) -> tuple[str, str]:
-    request = urllib.request.Request(url, headers=HTTP_HEADERS)
+    if client is not None:
+        response = client.get(url, timeout=timeout)
+        _raise_if_blocked(response.status, response.text, response.url, url)
+        return response.text, response.url
+    request = urllib.request.Request(url, headers=URLLIB_HEADERS)
     try:
         if opener is None:
             response = urllib.request.urlopen(
@@ -208,11 +341,8 @@ def fetch_search_html(
                 f"Google Flights HTTP {exc.code} from {url}"
             ) from exc
         raise
-    if status >= 400:
-        raise GoogleFlightsBlocked(f"Google Flights HTTP {status} from {final_url}")
     html = _decode_http_body(raw, encoding)
-    if looks_blocked(html, final_url):
-        raise GoogleFlightsBlocked(f"Google Flights blocked the sweep at {final_url}")
+    _raise_if_blocked(status, html, final_url, url)
     return html, final_url
 
 
@@ -241,7 +371,7 @@ def parse_flight_cards(html: str) -> tuple[RawFlightCard, ...]:
 
 
 class GoogleFlightsHttpSource:
-    """HTTP GET of the owned search URL. No Chromium."""
+    """Sweep source: compact shopping RPC, HTML card parse as fallback. No Chromium."""
 
     def __init__(
         self,
@@ -249,24 +379,82 @@ class GoogleFlightsHttpSource:
         html_lang: str = SCRAPE_LANGUAGE,
         currency: str = SCRAPE_CURRENCY,
         opener: Optional[urllib.request.OpenerDirector] = None,
+        client: Optional[SweepHttpClient] = None,
         timeout: float = HTTP_TIMEOUT_SECONDS,
     ) -> None:
         self._html_lang = html_lang
         self._currency = currency
+        self._injected_client = client
         self._opener = opener
+        self._owned_client: Optional[ChromeSweepClient] = None
         self._timeout = timeout
         self.config = SimpleNamespace(html_lang=html_lang, currency=currency)
 
     def fetch(self, query: FlightQuery) -> tuple[RawFlightCard, ...]:
+        client = self._ensure_client()
+        try:
+            return self._fetch_compact(client, query)
+        except (GoogleFlightsBlocked, NoFlightsFound):
+            raise
+        except CompactParseMiss:
+            pass
         url = build_search_url(query, html_lang=self._html_lang, currency=self._currency)
-        html, _final_url = fetch_search_html(url, opener=self._opener, timeout=self._timeout)
+        html, _final_url = fetch_search_html(url, client=client, timeout=self._timeout)
         return parse_http_flight_cards(html)
 
     def reset(self) -> None:
-        return None
+        self._close_owned_client()
 
     def close(self) -> None:
-        return None
+        self._close_owned_client()
+
+    def _ensure_client(self) -> SweepHttpClient:
+        if self._injected_client is not None:
+            return self._injected_client
+        if self._opener is not None:
+            return _OpenerSweepClient(self._opener)
+        if self._owned_client is None:
+            self._owned_client = ChromeSweepClient()
+        return self._owned_client
+
+    def _close_owned_client(self) -> None:
+        if self._owned_client is not None:
+            self._owned_client.close()
+            self._owned_client = None
+
+    def _fetch_compact(
+        self, client: SweepHttpClient, query: FlightQuery
+    ) -> tuple[RawFlightCard, ...]:
+        url, body = build_shopping_request(
+            query, html_lang=self._html_lang, currency=self._currency
+        )
+        try:
+            response = client.post(
+                url, data=body, headers=SHOPPING_POST_HEADERS, timeout=self._timeout
+            )
+        except CompactParseMiss:
+            raise
+        except Exception as exc:
+            raise CompactParseMiss(f"shopping POST failed: {exc}") from exc
+        if response.status in {403, 429, 503} or looks_blocked(response.text, response.url):
+            _raise_if_blocked(response.status, response.text, response.url, url)
+        if response.status >= 400:
+            raise CompactParseMiss(f"shopping HTTP {response.status}")
+        try:
+            compact = parse_shopping_body(response.text)
+        except EmptyShoppingResults as exc:
+            raise NoFlightsFound() from exc
+        return tuple(
+            RawFlightCard(
+                airline=card.airline,
+                departure=card.departure,
+                arrival=card.arrival,
+                duration=card.duration,
+                stops=card.stops,
+                price=card.price,
+            )
+            for card in compact
+        )
 
 
 class GoogleFlightsSource:

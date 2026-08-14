@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import unittest
 from datetime import date
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from viajante.flights import _normalize_offer
 from viajante.google_flights import (
@@ -11,12 +12,20 @@ from viajante.google_flights import (
     GoogleFlightsHttpSource,
     GoogleFlightsMarkupError,
     NoFlightsFound,
+    SweepHttpResponse,
     build_search_params,
     build_search_url,
     extract_main_html,
     looks_blocked,
     parse_flight_cards,
     parse_http_flight_cards,
+)
+from viajante.google_flights_rpc import (
+    CompactParseMiss,
+    EmptyShoppingResults,
+    build_shopping_inner,
+    build_shopping_request,
+    parse_shopping_body,
 )
 from viajante.models import FlightQuery
 
@@ -291,6 +300,186 @@ class HttpSweepParseTests(unittest.TestCase):
         source = GoogleFlightsHttpSource(opener=_Opener())
         with self.assertRaises(GoogleFlightsBlocked):
             source.fetch(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1))
+
+
+def _itinerary(
+    *,
+    airline: str = "Iberia",
+    code: str = "IB",
+    dep: tuple[int, int] = (8, 40),
+    arr: tuple[int, int] = (11, 30),
+    minutes: int = 170,
+    price: int = 129,
+    legs: int = 1,
+) -> list[object]:
+    flight = [
+        code,
+        [airline],
+        [[] for _ in range(legs)],
+        "MAD",
+        None,
+        list(dep),
+        "BCN",
+        None,
+        list(arr),
+        minutes,
+    ]
+    return [flight, [[None, price], "tok"]]
+
+
+def _compact_body(*itineraries: list[object], other: tuple[list[object], ...] = ()) -> str:
+    data: list[object] = [
+        None,
+        None,
+        [list(itineraries), None, False],
+        [list(other), len(other), False],
+    ]
+    wrb = [["wrb.fr", None, json.dumps(data, separators=(",", ":"))]]
+    raw = json.dumps(wrb, separators=(",", ":"))
+    return f")]}}'\n\n{len(raw)}\n{raw}"
+
+
+class _FakeSweepClient:
+    def __init__(
+        self,
+        *,
+        post_text: str = "",
+        post_status: int = 200,
+        post_url: str = "https://www.google.com/_/FlightsFrontendUi/data/shopping",
+        get_text: str = "",
+        get_status: int = 200,
+        get_url: str = "https://www.google.com/travel/flights?hl=en",
+    ) -> None:
+        self.post_text = post_text
+        self.post_status = post_status
+        self.post_url = post_url
+        self.get_text = get_text
+        self.get_status = get_status
+        self.get_url = get_url
+        self.posts: list[str] = []
+        self.gets: list[str] = []
+
+    def post(
+        self,
+        url: str,
+        *,
+        data: str,
+        headers: object,
+        timeout: float,
+    ) -> SweepHttpResponse:
+        self.posts.append(url)
+        self.last_post_data = data
+        return SweepHttpResponse(self.post_status, self.post_text, self.post_url)
+
+    def get(self, url: str, *, timeout: float) -> SweepHttpResponse:
+        self.gets.append(url)
+        return SweepHttpResponse(self.get_status, self.get_text, self.get_url)
+
+    def close(self) -> None:
+        return None
+
+
+class ShoppingRpcTests(unittest.TestCase):
+    def test_inner_payload_keeps_owned_airport_nesting(self) -> None:
+        query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1, adults=2, cabin="business")
+        inner = build_shopping_inner(query)
+        flight = inner[1][13][0]
+        self.assertEqual(flight[0], [[["MAD", 0]]])
+        self.assertEqual(flight[1], [[["BCN", 0]]])
+        self.assertEqual(flight[3], 2)
+        self.assertEqual(flight[6], "2026-09-01")
+        self.assertEqual(inner[1][5], 3)
+        self.assertEqual(inner[1][6], [2, 0, 0, 0])
+
+    def test_request_body_is_f_req_envelope(self) -> None:
+        query = FlightQuery("MAD", "OPO", date(2026, 10, 9), max_stops=0)
+        url, body = build_shopping_request(query)
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        self.assertEqual(params["hl"], ["en"])
+        self.assertEqual(params["curr"], ["EUR"])
+        self.assertEqual(params["rt"], ["c"])
+        self.assertTrue(body.startswith("f.req="))
+        envelope = json.loads(unquote(body[len("f.req=") :]))
+        self.assertIsNone(envelope[0])
+        inner = json.loads(envelope[1])
+        self.assertEqual(inner[1][13][0][1], [[["OPO", 0]]])
+
+    def test_compact_body_yields_raw_card_fields(self) -> None:
+        body = _compact_body(
+            _itinerary(
+                airline="Air Europa",
+                dep=(17, 5),
+                arr=(21, 10),
+                minutes=245,
+                price=83,
+                legs=2,
+            )
+        )
+        cards = parse_shopping_body(body)
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].airline, "Air Europa")
+        self.assertEqual(cards[0].departure, "5:05 PM")
+        self.assertEqual(cards[0].arrival, "9:10 PM")
+        self.assertEqual(cards[0].duration, "4 hr 5 min")
+        self.assertEqual(cards[0].stops, "1 stop")
+        self.assertEqual(cards[0].price, "€83")
+        offer = _normalize_offer(cards[0], max_stops=1)
+        assert offer is not None
+        self.assertEqual(offer.price_eur, 83.0)
+        self.assertEqual(offer.stops_count, 1)
+        self.assertEqual(offer.duration_hours, 4 + 5 / 60)
+
+    def test_midnight_and_noon_clocks(self) -> None:
+        body = _compact_body(
+            _itinerary(dep=(0, 10), arr=(12, 0), minutes=60, price=40, legs=1),
+        )
+        card = parse_shopping_body(body)[0]
+        self.assertEqual(card.departure, "12:10 AM")
+        self.assertEqual(card.arrival, "12:00 PM")
+        self.assertEqual(card.duration, "1 hr")
+        self.assertEqual(card.stops, "Nonstop")
+
+    def test_empty_itinerary_slots_are_no_flights(self) -> None:
+        with self.assertRaises(EmptyShoppingResults):
+            parse_shopping_body(_compact_body())
+
+    def test_unreadable_body_is_compact_miss(self) -> None:
+        with self.assertRaises(CompactParseMiss):
+            parse_shopping_body("not a shopping payload")
+
+    def test_source_uses_compact_post_not_html(self) -> None:
+        client = _FakeSweepClient(post_text=_compact_body(_itinerary(price=88, airline="Iberia")))
+        source = GoogleFlightsHttpSource(client=client)
+        cards = source.fetch(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1))
+        self.assertEqual(cards[0].airline, "Iberia")
+        self.assertEqual(cards[0].price, "€88")
+        self.assertEqual(len(client.posts), 1)
+        self.assertEqual(client.gets, [])
+
+    def test_source_falls_back_to_html_when_compact_misses(self) -> None:
+        html = _http_page(build_results_page(build_card(price="€39", airline="Vueling")))
+        client = _FakeSweepClient(post_text="totally unrelated", get_text=html)
+        source = GoogleFlightsHttpSource(client=client)
+        cards = source.fetch(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1))
+        self.assertEqual(cards[0].airline, "Vueling")
+        self.assertEqual(cards[0].price, "€39")
+        self.assertEqual(len(client.posts), 1)
+        self.assertEqual(len(client.gets), 1)
+
+    def test_empty_compact_does_not_download_html(self) -> None:
+        client = _FakeSweepClient(post_text=_compact_body())
+        source = GoogleFlightsHttpSource(client=client)
+        with self.assertRaises(NoFlightsFound):
+            source.fetch(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1))
+        self.assertEqual(client.gets, [])
+
+    def test_source_raises_blocked_on_shopping_403(self) -> None:
+        client = _FakeSweepClient(post_status=403, post_text="no")
+        source = GoogleFlightsHttpSource(client=client)
+        with self.assertRaises(GoogleFlightsBlocked):
+            source.fetch(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1))
+        self.assertEqual(client.gets, [])
 
 
 if __name__ == "__main__":
