@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
-  <title>How trip-sift works</title>
-  <desc>Flight or hotel data flows from a user or agent through the CLI and local Chromium to typed EUR results, with cookies stored in the local state directory.</desc>
+  <title>How viajante works</title>
+  <desc>Flight or hotel data flows from a user or agent through the viajante CLI and local Chromium to typed EUR results, with cookies stored in the local state directory.</desc>
   <rect x="1" y="1" width="1198" height="298" rx="20" fill="#F6F0E4" stroke="#E6DCC9" stroke-width="2"/>
   <g>
     <rect x="40" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
@@ -17,7 +17,7 @@
     <path d="M540 40V190" stroke="#E6DCC9" stroke-width="2" stroke-dasharray="6 8"/>
     <circle cx="540" cy="40" r="10" fill="#F6F0E4"/>
     <circle cx="540" cy="190" r="10" fill="#F6F0E4"/>
-    <text x="440" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">trip-sift CLI</text>
+    <text x="440" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">viajante CLI</text>
     <text x="440" y="142" fill="#52636B" font-size="18" text-anchor="middle">validate + pace</text>
   </g>
   <g>
