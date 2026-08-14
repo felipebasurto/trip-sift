@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import gzip
+import ssl
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -25,6 +30,25 @@ RESULT_TABS = "EgQIABABIgA"
 PAGE_TIMEOUT_MS = 60_000
 CONSENT_CLICK_TIMEOUT_MS = 5_000
 CONSENT_SETTLE_MS = 1_500
+HTTP_TIMEOUT_SECONDS = 30
+# Current Linux Chrome; do not spoof a stale Chrome/macOS UA.
+HTTP_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+HTTP_HEADERS = {
+    "User-Agent": HTTP_USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+    "Cache-Control": "no-cache",
+}
+
+BLOCK_URL_MARKERS = ("consent.google", "/sorry/", "ipv4.google.com/sorry")
+BLOCK_BODY_MARKERS = (
+    "our systems have detected unusual traffic",
+    "unusual traffic from your computer network",
+)
 
 RESULTS_SELECTOR = ".eQ35Ce"
 EMPTY_STATE_SELECTOR = "div.QEk4oc.BgYkof"
@@ -71,6 +95,10 @@ class NoFlightsFound(Exception):
 
 class GoogleFlightsMarkupError(RuntimeError):
     """Neither a results grid nor a recognized empty state was found."""
+
+
+class GoogleFlightsBlocked(RuntimeError):
+    """HTTP sweep hit a consent wall, captcha, or traffic block."""
 
 
 def build_search_params(
@@ -130,6 +158,68 @@ def _has_empty_state(parser: LexborHTMLParser) -> bool:
     return EMPTY_STATE_TEXT.casefold() in body.text(separator=" ").casefold()
 
 
+def extract_main_html(html: str) -> str:
+    parser = LexborHTMLParser(html)
+    main = parser.css_first('[role="main"]')
+    if main is None:
+        return html
+    return main.html or html
+
+
+def looks_blocked(html: str, final_url: str = "") -> bool:
+    lowered_url = final_url.casefold()
+    if any(marker in lowered_url for marker in BLOCK_URL_MARKERS):
+        return True
+    lowered = html.casefold()
+    return any(marker in lowered for marker in BLOCK_BODY_MARKERS)
+
+
+def _decode_http_body(raw: bytes, content_encoding: str) -> str:
+    encoding = content_encoding.casefold()
+    if "gzip" in encoding or raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    elif "deflate" in encoding:
+        raw = gzip.decompress(raw, wbits=-15)
+    return raw.decode("utf-8", errors="replace")
+
+
+def fetch_search_html(
+    url: str,
+    *,
+    opener: Optional[urllib.request.OpenerDirector] = None,
+    timeout: float = HTTP_TIMEOUT_SECONDS,
+) -> tuple[str, str]:
+    request = urllib.request.Request(url, headers=HTTP_HEADERS)
+    try:
+        if opener is None:
+            response = urllib.request.urlopen(
+                request, timeout=timeout, context=ssl.create_default_context()
+            )
+        else:
+            response = opener.open(request, timeout=timeout)
+        with response:
+            raw = response.read()
+            encoding = response.headers.get("Content-Encoding", "")
+            final_url = response.geturl()
+            status = getattr(response, "status", 200)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {403, 429, 503}:
+            raise GoogleFlightsBlocked(
+                f"Google Flights HTTP {exc.code} from {url}"
+            ) from exc
+        raise
+    if status >= 400:
+        raise GoogleFlightsBlocked(f"Google Flights HTTP {status} from {final_url}")
+    html = _decode_http_body(raw, encoding)
+    if looks_blocked(html, final_url):
+        raise GoogleFlightsBlocked(f"Google Flights blocked the sweep at {final_url}")
+    return html, final_url
+
+
+def parse_http_flight_cards(html: str) -> tuple[RawFlightCard, ...]:
+    return parse_flight_cards(extract_main_html(html))
+
+
 def parse_flight_cards(html: str) -> tuple[RawFlightCard, ...]:
     parser = LexborHTMLParser(html)
     cards: list[RawFlightCard] = []
@@ -148,6 +238,35 @@ def parse_flight_cards(html: str) -> tuple[RawFlightCard, ...]:
     raise GoogleFlightsMarkupError(
         f"no results grid and no empty state in {len(html)} chars of main HTML"
     )
+
+
+class GoogleFlightsHttpSource:
+    """HTTP GET of the owned search URL. No Chromium."""
+
+    def __init__(
+        self,
+        *,
+        html_lang: str = SCRAPE_LANGUAGE,
+        currency: str = SCRAPE_CURRENCY,
+        opener: Optional[urllib.request.OpenerDirector] = None,
+        timeout: float = HTTP_TIMEOUT_SECONDS,
+    ) -> None:
+        self._html_lang = html_lang
+        self._currency = currency
+        self._opener = opener
+        self._timeout = timeout
+        self.config = SimpleNamespace(html_lang=html_lang, currency=currency)
+
+    def fetch(self, query: FlightQuery) -> tuple[RawFlightCard, ...]:
+        url = build_search_url(query, html_lang=self._html_lang, currency=self._currency)
+        html, _final_url = fetch_search_html(url, opener=self._opener, timeout=self._timeout)
+        return parse_http_flight_cards(html)
+
+    def reset(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
 
 
 class GoogleFlightsSource:

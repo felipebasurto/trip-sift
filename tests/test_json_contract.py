@@ -14,7 +14,15 @@ from viajante.models import (
     SearchReport,
 )
 
-REPORT_KEYS = {"schema_version", "searched_at", "currency", "locale", "queries"}
+REPORT_KEYS = {
+    "schema_version",
+    "searched_at",
+    "currency",
+    "locale",
+    "fetch_backend",
+    "fetch_ms",
+    "queries",
+}
 QUERY_KEYS = {
     "origin",
     "destination",
@@ -58,6 +66,8 @@ def _report() -> SearchReport:
     )
     return SearchReport(
         searched_at=datetime(2026, 8, 11, 10, 32, 0, tzinfo=timezone.utc),
+        fetch_backend="sweep",
+        fetch_ms=2410,
         queries=(
             QuerySuccess(query=query, raw_count=24, eligible_count=1, offers=(offer,)),
             QueryFailure(
@@ -92,6 +102,8 @@ class JsonContractTests(unittest.TestCase):
         self.assertEqual(self.data["schema_version"], 1)
         self.assertEqual(self.data["currency"], "EUR")
         self.assertEqual(self.data["locale"], "en")
+        self.assertEqual(self.data["fetch_backend"], "sweep")
+        self.assertEqual(self.data["fetch_ms"], 2410)
 
     def test_timestamp_is_utc_iso_with_a_trailing_z(self) -> None:
         self.assertEqual(self.data["searched_at"], "2026-08-11T10:32:00Z")

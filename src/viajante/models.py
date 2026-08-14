@@ -139,6 +139,8 @@ class QueryFailure:
 
 QueryResult = Union[QuerySuccess, QueryFailure]
 
+FetchBackend = Literal["sweep", "detail", "sweep_then_detail"]
+
 
 @dataclass(frozen=True)
 class SearchReport:
@@ -146,6 +148,8 @@ class SearchReport:
     queries: Tuple[QueryResult, ...]
     locale: str = "en"
     currency: str = "EUR"
+    fetch_backend: Optional[FetchBackend] = None
+    fetch_ms: Optional[int] = None
     schema_version: int = field(init=False, default=1)
 
     def __post_init__(self) -> None:
@@ -162,6 +166,8 @@ class SearchReport:
             "searched_at": self.searched_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "currency": self.currency,
             "locale": self.locale,
+            "fetch_backend": self.fetch_backend,
+            "fetch_ms": self.fetch_ms,
             "queries": [result.to_dict() for result in self.queries],
         }
 

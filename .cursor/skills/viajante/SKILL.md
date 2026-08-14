@@ -20,7 +20,7 @@ After `uv sync` and `uv run playwright install chromium`, the entry point is ava
 ## Commands
 
 ```bash
-uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare}] [--save FILE]
+uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare}] [--fetch {auto,sweep,detail}] [--save FILE]
 uv run viajante hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
 ```
 
@@ -32,8 +32,11 @@ Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one rou
 # Offline (always safe)
 uv run python -m unittest discover -s tests -v
 
-# One live flight query
-uv run viajante flights MAD-BCN:2026-12-04 --top 3
+# Fast HTTP shortlist (no Chromium)
+uv run viajante flights MAD-BCN:2026-09-01 --fetch sweep --top 3
+
+# Playwright max evidence
+uv run viajante flights MAD-BCN:2026-12-04 --fetch detail --top 3
 
 # One live hotel query
 uv run viajante hotels Prague 2026-12-04 2026-12-07 --top 3
@@ -59,13 +62,21 @@ uv run viajante flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
 
 Each route and each comma-separated date is a separate sequential query. `--max-stops` applies to every leg in that invocation. Progress lines go to stderr as `[i/N] ORIGIN -> DEST DATE`.
 
+## Fetch modes (flights)
+
+- **sweep**: HTTP GET of the owned Google Flights URL. Fast shortlist. No Chromium. No 4.5s inter-query delay.
+- **detail**: existing Playwright path. Max evidence (times, bags, full card set). Current 4.5s+jitter pacing.
+- **auto** (default): sweep when the invocation has 3+ flight queries, detail for 1–2. If sweep returns empty, markup drift, or a block, fall back to detail once (`fetch_backend: sweep_then_detail` on stderr and in `--save` JSON).
+
+Use sweep to shortlist a 10–20 route batch. Use `--fetch detail` (or a second invocation) when the user asks for times, bags, or the full card set. Do not mix backends across legs of one report unless that fallback fired.
+
 ## Timing
 
-Between queries the CLI sleeps about 4.5 to 6 seconds on purpose. N queries cost roughly N scrapes plus (N-1) delays. Never shorten delays or parallelize Google Flights or Booking.com requests.
+Sweep inter-query delay is 0. Detail and hotels still sleep about 4.5 to 6 seconds between queries on purpose. Never shorten detail/hotel delays or parallelize Google Flights or Booking.com requests.
 
 ## Destination triage (before date buffers)
 
-Do **not** open with a full outbound×return date matrix across many cities. Each `ORIGIN-DEST:date` is a sequential scrape (~5–6 s between queries). Prefer:
+Do **not** open with a full outbound×return date matrix across many cities. Prefer a sweep shortlist on fixed dates, then `--fetch detail` on 1–3 finalists. Prefer:
 
 1. **Shortlist from vibe + expected band** (table below). Drop cities that are clearly out of budget before scraping.
 2. **Fixed natural dates first** — one outbound + one return per destination (e.g. Fri→Tue for a Monday holiday bridge). `--top 3`, `--save` if comparing.
@@ -94,7 +105,7 @@ Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hote
 
 - Use the CLI or the installed `search_flights` / `search_hotels` APIs. Do not write a one-off scraper.
 - Run provider queries sequentially.
-- Do not add flags or code that shorten built-in delays or backoff.
+- Do not add flags or code that shorten detail or hotel delays or backoff. Sweep already uses a zero inter-query delay; do not parallelize.
 - After rate-limit failures, stop for 30-60 minutes before another search.
 
 ### Flights

@@ -9,9 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Optional
 
-from playwright.sync_api import sync_playwright
-
 BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font"})
+
+
+def _sync_playwright():
+    # Detail-only: sweep must import this module without a Playwright install.
+    from playwright.sync_api import sync_playwright
+
+    return sync_playwright()
 
 
 @dataclass(frozen=True)
@@ -56,7 +61,7 @@ class ChromiumSession:
     def _ensure_context(self) -> object:
         if self._context is None:
             self._state_dir.mkdir(parents=True, exist_ok=True)
-            self._pw = sync_playwright().start()
+            self._pw = _sync_playwright().start()
             self._browser = self._pw.chromium.launch(headless=True)
             options: dict[str, object] = {
                 "locale": self._config.locale,

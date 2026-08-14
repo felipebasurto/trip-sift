@@ -14,21 +14,23 @@
 - Domain types or JSON keys: `src/viajante/models.py`
 - Raw card text to numbers/enums: `src/viajante/parsers.py`
 
-`google_flights.py` owns URL building, consent, card parsing, typed provider failures, and `GoogleFlightsSource`. `booking.py` owns Booking.com URL/chips, consent, card extract, and `BookingHotelsSource`. Session lifecycle lives in `browser.py`. `flights.py` and `hotels.py` are the search loops: pure and offline-testable outside the browser source.
+`google_flights.py` owns URL building, consent, card parsing, typed provider failures, the HTTP sweep source, and `GoogleFlightsSource`. `booking.py` owns Booking.com URL/chips, consent, card extract, and `BookingHotelsSource`. Session lifecycle lives in `browser.py`. `flights.py` and `hotels.py` are the search loops: pure and offline-testable outside the browser source.
 
 ## Invariants
 
 - Validate CLI input before starting Chromium. That includes rejecting departure dates in the past.
-- One lazy Chromium per process. Flights block images, media, and fonts. Booking blocks images and media only (fonts stay; they can be required to render the list). Do not spoof a stale Chrome/macOS user-agent; use Playwright's Chromium UA.
-- Fixed delays: 4.5s + up to 1.5s jitter between queries; 3 attempts with 8s exponential backoff + jitter; browser reset after each failed attempt.
-- No flags to shorten delays or parallelize requests. Progress output is allowed and goes to stderr.
-- Retry only what can succeed on a second try. `NO_RESULTS`, `BROWSER_UNAVAILABLE`, owned Google markup drift (`GoogleFlightsMarkupError`, still reported as `fetch_failed`), and Booking card-wait timeouts (`BookingResultsTimeout`, still `fetch_failed`) fail immediately. Do not hammer Booking after a challenge page.
+- Two flight fetch modes, one public contract. `sweep` is an HTTP GET of the owned Google Flights URL (`encode_tfs` + the existing card parser). `detail` is the Playwright scrape. `--fetch {auto,sweep,detail}`: auto uses sweep for 3+ flight queries and detail for 1–2. If sweep returns empty, markup drift, or a block, fall back to detail once and record `fetch_backend: sweep_then_detail`. Do not silently mix backends across legs of one report unless that fallback fired.
+- Sweep must not use the 4.5s browser delay (inter-query delay is 0). Sweep must work with no Playwright/Chromium install. One lazy Chromium per process, and only when detail actually runs. Flights block images, media, and fonts. Booking blocks images and media only (fonts stay; they can be required to render the list). Do not spoof a stale Chrome/macOS user-agent; use Playwright's Chromium UA for detail.
+- Detail delays: 4.5s + up to 1.5s jitter between queries; 3 attempts with 8s exponential backoff + jitter; browser reset after each failed attempt.
+- No flags to shorten detail delays or parallelize requests. Progress output is allowed and goes to stderr.
+- Retry only what can succeed on a second try. `NO_RESULTS`, `BROWSER_UNAVAILABLE`, owned Google markup drift (`GoogleFlightsMarkupError`, still reported as `fetch_failed`), HTTP sweep blocks (`GoogleFlightsBlocked`, still `fetch_failed`), and Booking card-wait timeouts (`BookingResultsTimeout`, still `fetch_failed`) fail immediately. Do not hammer Booking after a challenge page.
 - Every offer keeps raw text beside parsed fields (`price`/`price_eur`, `duration`/`duration_hours`, `stops`/`stops_count`).
 - JSON output only with `--save`. Browser state lives outside the checkout (`VIAJANTE_STATE_DIR` or XDG state dir), and is always written to a temp file and renamed. Booking fetch failures dump `booking-last-failure.html` / `.txt` there for diagnosis; do not commit those files.
 
 ### Flights
 
-- The flight scrape locale is `hl=en` with `locale="en-US"` for stable rendered evidence and the existing JSON `locale: "en"` contract. Currency comes from `curr=EUR`, independently of `hl`. Card parsing is owned by viajante and keeps raw stop/price labels. This does not apply to hotels, which use `lang=es` against our own parser.
+- Sweep is the fast shortlist (HTTP, no Chromium). Detail is max evidence (Playwright, full card set, current delays). Keep EUR, `hl=en` for flights, ranked/fare sort, and the baggage buffer in both modes. Card parsing is owned by viajante and keeps raw stop/price labels. This does not apply to hotels, which use `lang=es` against our own parser.
+- The flight scrape locale is `hl=en` with `locale="en-US"` for stable rendered evidence and the existing JSON `locale: "en"` contract. Currency comes from `curr=EUR`, independently of `hl`.
 - `max_stops` is 0 or 1 per query; filtering follows each query's value. Flights stay one-way; `adults` and `cabin` are query fields (CLI `--adults` / `--cabin`). `ORIGIN-DEST:OUT:BACK` is sugar for two one-way queries (out then return), not a round-trip `tfs`.
 - The baggage buffer is an input (`--baggage-buffer`, default 70 EUR), not a constant. A non-zero buffer implies `needs_bag_verify`. Default `--sort ranked` selects `--top` by fare+buffer; `--sort fare` uses fare. The ranked total must be visible when a buffer was added. Callers must verify baggage on Google Flights before booking.
 - The low-cost carrier list is partial. Absence from it is not evidence that a fare includes a bag.
@@ -54,7 +56,7 @@ uv run ruff check src tests
 
 `pip install -e .` still works, but `uv` is the reproducible path for this tree. Tests are offline. They must not launch Chromium or use the network. CI runs the suite on Python 3.10 through 3.14.
 
-`tests/test_google_flights.py` pins owned TFS encoding and drives synthetic markup through the owned card parser. Test the owned boundary (`RawFlightCard`, typed empty/markup failures), not upstream HTML rewriting. `tests/test_booking.py` is the Booking page seam (`build_applied_filters`, cards, empty vs markup). `tests/test_hotels.py` is eligibility, ranking, and the search loop.
+`tests/test_google_flights.py` pins owned TFS encoding and drives synthetic markup through the owned card parser, including the HTTP sweep body → `RawFlightCard` seam. Test the owned boundary (`RawFlightCard`, typed empty/markup/block failures), not upstream HTML rewriting. `tests/test_booking.py` is the Booking page seam (`build_applied_filters`, cards, empty vs markup). `tests/test_hotels.py` is eligibility, ranking, and the search loop.
 
 `tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output.
 

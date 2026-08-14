@@ -14,15 +14,23 @@ from viajante.flights import (
     classify_failure,
     is_low_cost,
     parse_route_specs,
+    resolve_fetch_mode,
     search_flights,
+    sweep_needs_fallback,
 )
-from viajante.google_flights import GoogleFlightsMarkupError, NoFlightsFound, RawFlightCard
+from viajante.google_flights import (
+    GoogleFlightsBlocked,
+    GoogleFlightsMarkupError,
+    NoFlightsFound,
+    RawFlightCard,
+)
 from viajante.models import (
     FlightOffer,
     FlightQuery,
     QueryFailure,
     QuerySuccess,
     SearchErrorCode,
+    SearchReport,
 )
 from viajante.orchestration import (
     BACKOFF_BASE_SECONDS,
@@ -30,6 +38,7 @@ from viajante.orchestration import (
     MAX_ATTEMPTS,
     REQUEST_DELAY_SECONDS,
     REQUEST_JITTER_SECONDS,
+    sweep_inter_query_delay_seconds,
 )
 
 
@@ -159,6 +168,12 @@ class NonRetriableFailureTests(unittest.TestCase):
 
     def test_markup_errors_are_not_retried(self) -> None:
         outcome, source, sleeps = self._run(GoogleFlightsMarkupError("selectors rotted"))
+        self.assertEqual(source.fetch_calls, 1)
+        self.assertEqual(sleeps, [])
+        self.assertEqual(outcome.error.code, SearchErrorCode.FETCH_FAILED)
+
+    def test_http_blocks_are_not_retried(self) -> None:
+        outcome, source, sleeps = self._run(GoogleFlightsBlocked("consent wall"))
         self.assertEqual(source.fetch_calls, 1)
         self.assertEqual(sleeps, [])
         self.assertEqual(outcome.error.code, SearchErrorCode.FETCH_FAILED)
@@ -383,6 +398,107 @@ class FlightsOrchestrationTests(unittest.TestCase):
         with patch("viajante.flights.GoogleFlightsSource", return_value=source):
             search_flights((query,), top=1)
         self.assertTrue(source.closed)
+
+    def test_sweep_skips_the_browser_inter_query_delay(self) -> None:
+        queries = (
+            FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1),
+            FlightQuery("MAD", "OPO", date(2026, 10, 9), max_stops=1),
+        )
+        source = FakeSource(
+            {
+                ("MAD", "BCN", "2026-09-01", 1): (card(),),
+                ("MAD", "OPO", "2026-10-09", 1): (card(airline="Ryanair"),),
+            }
+        )
+        sleeps: list[float] = []
+        _run_search(
+            queries,
+            top=8,
+            source=source,
+            sleep=sleeps.append,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10),
+            inter_query_delay=sweep_inter_query_delay_seconds,
+        )
+        self.assertEqual(sleeps, [0.0])
+
+    def test_search_sweep_does_not_construct_chromium(self) -> None:
+        query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
+        source = FakeSource({("MAD", "BCN", "2026-09-01", 1): (card(airline="Iberia"),)})
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=source):
+            with patch("viajante.flights.GoogleFlightsSource") as detail:
+                report = search_flights((query,), top=1, fetch="sweep")
+        detail.assert_not_called()
+        self.assertEqual(report.fetch_backend, "sweep")
+        self.assertIsInstance(report.fetch_ms, int)
+        self.assertGreaterEqual(report.fetch_ms or 0, 0)
+        self.assertTrue(source.closed)
+
+    def test_auto_uses_sweep_for_three_queries(self) -> None:
+        queries = (
+            FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1),
+            FlightQuery("MAD", "OPO", date(2026, 10, 9), max_stops=1),
+            FlightQuery("OPO", "MAD", date(2026, 10, 12), max_stops=1),
+        )
+        source = FakeSource(
+            {
+                ("MAD", "BCN", "2026-09-01", 1): (card(),),
+                ("MAD", "OPO", "2026-10-09", 1): (card(),),
+                ("OPO", "MAD", "2026-10-12", 1): (card(),),
+            }
+        )
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=source):
+            with patch("viajante.flights.GoogleFlightsSource") as detail:
+                report = search_flights(queries, top=1)
+        detail.assert_not_called()
+        self.assertEqual(report.fetch_backend, "sweep")
+
+    def test_sweep_fallback_reruns_the_whole_report_on_detail(self) -> None:
+        query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
+        sweep = FakeSource({("MAD", "BCN", "2026-09-01", 1): NoFlightsFound()})
+        detail = FakeSource({("MAD", "BCN", "2026-09-01", 1): (card(airline="Iberia"),)})
+        lines: list[str] = []
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=sweep):
+            with patch("viajante.flights.GoogleFlightsSource", return_value=detail):
+                report = search_flights((query,), top=1, fetch="sweep", progress=lines.append)
+        self.assertEqual(report.fetch_backend, "sweep_then_detail")
+        self.assertIsInstance(report.queries[0], QuerySuccess)
+        self.assertEqual(report.queries[0].offers[0].airline, "Iberia")
+        self.assertTrue(any("falling back to detail" in line for line in lines))
+        self.assertTrue(sweep.closed)
+        self.assertTrue(detail.closed)
+
+
+class FetchModeTests(unittest.TestCase):
+    def test_auto_is_detail_for_one_or_two_queries(self) -> None:
+        self.assertEqual(resolve_fetch_mode("auto", 1), "detail")
+        self.assertEqual(resolve_fetch_mode("auto", 2), "detail")
+
+    def test_auto_is_sweep_for_three_or_more(self) -> None:
+        self.assertEqual(resolve_fetch_mode("auto", 3), "sweep")
+        self.assertEqual(resolve_fetch_mode("auto", 10), "sweep")
+
+    def test_explicit_modes_win(self) -> None:
+        self.assertEqual(resolve_fetch_mode("sweep", 1), "sweep")
+        self.assertEqual(resolve_fetch_mode("detail", 8), "detail")
+
+    def test_fallback_on_empty_or_failure_not_on_ok(self) -> None:
+        query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
+        ok = SearchReport(
+            searched_at=datetime(2026, 8, 10),
+            queries=(QuerySuccess(query=query, raw_count=2, eligible_count=1, offers=()),),
+        )
+        empty = SearchReport(
+            searched_at=datetime(2026, 8, 10),
+            queries=(
+                QueryFailure(
+                    query=query,
+                    error=classify_failure(NoFlightsFound()),
+                ),
+            ),
+        )
+        self.assertFalse(sweep_needs_fallback(ok))
+        self.assertTrue(sweep_needs_fallback(empty))
 
 
 if __name__ == "__main__":

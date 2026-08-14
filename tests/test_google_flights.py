@@ -7,11 +7,16 @@ from urllib.parse import parse_qs, urlparse
 from viajante.flights import _normalize_offer
 from viajante.google_flights import (
     EMPTY_STATE_TEXT,
+    GoogleFlightsBlocked,
+    GoogleFlightsHttpSource,
     GoogleFlightsMarkupError,
     NoFlightsFound,
     build_search_params,
     build_search_url,
+    extract_main_html,
+    looks_blocked,
     parse_flight_cards,
+    parse_http_flight_cards,
 )
 from viajante.models import FlightQuery
 
@@ -191,6 +196,101 @@ class OwnedCardParserTests(unittest.TestCase):
     def test_unknown_markup_raises_markup_error(self) -> None:
         with self.assertRaises(GoogleFlightsMarkupError):
             parse_flight_cards("<div>completely unrelated page</div>")
+
+
+def _http_page(inner: str) -> str:
+    return (
+        f'<html><body><div role="main">{inner}</div>'
+        "<footer>chrome chrome chrome</footer></body></html>"
+    )
+
+
+class HttpSweepParseTests(unittest.TestCase):
+    def test_http_body_yields_the_same_raw_cards(self) -> None:
+        html = _http_page(build_results_page(build_card(price="€39", airline="Vueling")))
+        cards = parse_http_flight_cards(html)
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].airline, "Vueling")
+        self.assertEqual(cards[0].price, "€39")
+        self.assertEqual(cards[0].stops, "Nonstop")
+        offer = _normalize_offer(cards[0], max_stops=1)
+        assert offer is not None
+        self.assertEqual(offer.price, "€39")
+        self.assertEqual(offer.price_eur, 39.0)
+
+    def test_extract_main_drops_chrome_outside_main(self) -> None:
+        inner = build_results_page(build_card(price="€88"))
+        extracted = extract_main_html(_http_page(inner))
+        self.assertIn("€88", extracted)
+        self.assertNotIn("chrome chrome chrome", extracted)
+
+    def test_http_empty_state_is_no_flights(self) -> None:
+        with self.assertRaises(NoFlightsFound):
+            parse_http_flight_cards(_http_page(build_empty_page()))
+
+    def test_http_unknown_shell_is_markup_error(self) -> None:
+        with self.assertRaises(GoogleFlightsMarkupError):
+            parse_http_flight_cards(_http_page("<div>completely unrelated page</div>"))
+
+    def test_consent_and_sorry_urls_are_blocks(self) -> None:
+        self.assertTrue(looks_blocked("<html></html>", "https://consent.google.com/ml"))
+        self.assertTrue(looks_blocked("<html></html>", "https://www.google.com/sorry/index"))
+        self.assertTrue(looks_blocked("Our systems have detected unusual traffic", ""))
+        self.assertFalse(looks_blocked(_http_page(build_results_page(build_card())), ""))
+
+    def test_http_source_uses_fixture_body_not_the_network(self) -> None:
+        html = _http_page(build_results_page(build_card(price="€131", airline="Iberia")))
+
+        class _Resp:
+            def __init__(self) -> None:
+                self.headers = {"Content-Encoding": ""}
+                self.status = 200
+
+            def read(self) -> bytes:
+                return html.encode("utf-8")
+
+            def geturl(self) -> str:
+                return "https://www.google.com/travel/flights?hl=en"
+
+            def __enter__(self) -> "_Resp":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        class _Opener:
+            def open(self, request: object, timeout: float = 0) -> _Resp:
+                return _Resp()
+
+        source = GoogleFlightsHttpSource(opener=_Opener())
+        cards = source.fetch(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1))
+        self.assertEqual(cards[0].airline, "Iberia")
+        self.assertEqual(cards[0].price, "€131")
+
+    def test_http_source_raises_blocked_on_sorry_redirect(self) -> None:
+        class _Resp:
+            headers = {"Content-Encoding": ""}
+            status = 200
+
+            def read(self) -> bytes:
+                return b"<html>sorry</html>"
+
+            def geturl(self) -> str:
+                return "https://www.google.com/sorry/index?continue=flights"
+
+            def __enter__(self) -> "_Resp":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        class _Opener:
+            def open(self, request: object, timeout: float = 0) -> _Resp:
+                return _Resp()
+
+        source = GoogleFlightsHttpSource(opener=_Opener())
+        with self.assertRaises(GoogleFlightsBlocked):
+            source.fetch(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1))
 
 
 if __name__ == "__main__":
