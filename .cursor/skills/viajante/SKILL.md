@@ -9,13 +9,13 @@ Local flight and hotel search. Prices in EUR. Flights are one-way; defaults are 
 
 ## Invocation
 
-Prefer the checkout CLI:
+Prefer MCP if this session already has viajante tools connected (`search_flights`, `search_hotels`, `lookup_airports`). Those tools return the same `to_dict()` reports as `--save`. Otherwise use the checkout CLI:
 
 ```bash
 uv run viajante ...
 ```
 
-After `uv sync` and `uv run playwright install chromium`, the entry point is available. Do not use a global `viajante` binary from another checkout.
+The stdio server is `uv run --extra mcp viajante-mcp`. After `uv sync` and `uv run playwright install chromium`, the CLI entry point is available. Do not use a global `viajante` binary from another checkout.
 
 ## Commands
 
@@ -112,7 +112,7 @@ Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hote
 
 ## Agent rules
 
-- Use the CLI or the installed `search_flights` / `search_hotels` APIs. Do not write a one-off scraper.
+- Use MCP tools if connected, else the CLI or the installed `search_flights` / `search_hotels` APIs. Do not write a one-off scraper.
 - Run provider queries sequentially.
 - Do not add flags or code that shorten detail or hotel delays or backoff. Sweep already uses a zero inter-query delay; do not parallelize.
 - After rate-limit failures, stop for 30-60 minutes before another search.

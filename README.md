@@ -22,7 +22,7 @@ uv sync
 uv run playwright install chromium
 ```
 
-After that, run the CLI with `uv run viajante`. The lockfile (`uv.lock`) pins the exact dependency graph used in CI. A plain `pip install -e .` still works if you prefer pip, but then you must install Chromium yourself and you lose the locked transitive versions.
+After that, run the CLI with `uv run viajante`. The lockfile (`uv.lock`) pins the exact dependency graph used in CI. A plain `pip install -e .` still works if you prefer pip, but then you must install Chromium yourself and you lose the locked transitive versions. Agents that want the stdio MCP server can add the extra: `uv sync --extra mcp`, then `uv run viajante-mcp`.
 
 ## Search flights
 

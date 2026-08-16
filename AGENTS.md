@@ -14,6 +14,8 @@
 - Chromium session: `src/viajante/browser.py`
 - `--save` or the state directory: `src/viajante/storage.py`
 - Flags or printed tables: `src/viajante/cli.py`
+- MCP handlers (no SDK import): `src/viajante/mcp_handlers.py`
+- Stdio MCP entry: `src/viajante/mcp_server.py`
 - Domain types or JSON keys: `src/viajante/models.py`
 - Raw card text to numbers/enums: `src/viajante/parsers.py`
 - Offline IATA lookup: `src/viajante/airports.py`
@@ -65,7 +67,7 @@ uv run ruff check src tests
 
 `tests/test_google_flights.py` pins owned TFS encoding, the compact shopping fixture → `RawFlightCard` seam, and HTML fallback. Test the owned boundary (`RawFlightCard`, typed empty/markup/block failures), not upstream HTML rewriting. `tests/test_booking.py` is the Booking page seam (`build_applied_filters`, cards, empty vs markup). `tests/test_google_hotels.py` is the AtySUc encode and stay-total parse. `tests/test_hotels.py` is eligibility, ranking, and the search loop.
 
-`tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output. `tests/test_dates.py`, `tests/test_explore.py`, and `tests/test_airports.py` cover the calendar window, explore catalog, and offline IATA lookup.
+`tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output. `tests/test_dates.py`, `tests/test_explore.py`, and `tests/test_airports.py` cover the calendar window, explore catalog, and offline IATA lookup. `tests/test_mcp.py` covers the MCP handlers on the default suite (no SDK).
 
 ## Trip-planning search strategy
 

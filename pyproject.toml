@@ -22,8 +22,12 @@ Homepage = "https://github.com/felipebasurto/viajante"
 Repository = "https://github.com/felipebasurto/viajante"
 Issues = "https://github.com/felipebasurto/viajante/issues"
 
+[project.optional-dependencies]
+mcp = ["mcp>=1.6.0"]
+
 [project.scripts]
 viajante = "viajante.cli:main"
+viajante-mcp = "viajante.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
