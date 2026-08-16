@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from viajante.models import (
     AppliedHotelFilters,
     CancellationEvidence,
+    FlightLeg,
     FlightOffer,
     FlightQuery,
     HotelOffer,
@@ -15,9 +16,11 @@ from viajante.models import (
     HotelQuerySuccess,
     HotelSearchReport,
     LodgingKind,
+    MultiCity,
     PropertyTypeEvidence,
     QueryFailure,
     QuerySuccess,
+    RoundTrip,
     SearchError,
     SearchErrorCode,
     SearchReport,
@@ -41,6 +44,60 @@ class ModelTests(unittest.TestCase):
             FlightQuery("XXX", "BCN", date(2026, 9, 1))
         with self.assertRaises(ValueError):
             FlightQuery("MAD", "XXX", date(2026, 9, 1))
+
+    def test_flight_query_legs_are_a_single_owned_leg(self) -> None:
+        query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=0)
+        self.assertEqual(len(query.legs), 1)
+        self.assertEqual(query.legs[0], FlightLeg("MAD", "BCN", date(2026, 9, 1), max_stops=0))
+
+    def test_flight_query_to_dict_stays_one_way(self) -> None:
+        data = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1).to_dict()
+        self.assertEqual(
+            set(data),
+            {"origin", "destination", "departure_date", "max_stops", "adults", "cabin"},
+        )
+        self.assertNotIn("return_date", data)
+        self.assertNotIn("legs", data)
+
+    def test_flight_leg_accepts_two_stops(self) -> None:
+        leg = FlightLeg("MAD", "NRT", date(2026, 10, 1), max_stops=2)
+        self.assertEqual(leg.max_stops, 2)
+        with self.assertRaises(ValueError):
+            FlightLeg("MAD", "NRT", date(2026, 10, 1), max_stops=3)
+        with self.assertRaises(ValueError):
+            FlightLeg("MAD", "MAD", date(2026, 10, 1))
+
+    def test_round_trip_mirrors_legs_and_rejects_open_jaw(self) -> None:
+        trip = RoundTrip("MAD", "OPO", date(2026, 10, 9), date(2026, 10, 12), max_stops=1)
+        self.assertEqual(trip.adults, 1)
+        self.assertEqual(trip.cabin, "economy")
+        self.assertEqual(
+            trip.legs,
+            (
+                FlightLeg("MAD", "OPO", date(2026, 10, 9), max_stops=1),
+                FlightLeg("OPO", "MAD", date(2026, 10, 12), max_stops=1),
+            ),
+        )
+        with self.assertRaises(ValueError):
+            RoundTrip("MAD", "OPO", date(2026, 10, 12), date(2026, 10, 9))
+        with self.assertRaises(ValueError):
+            RoundTrip("MAD", "MAD", date(2026, 10, 9), date(2026, 10, 12))
+
+    def test_multi_city_requires_two_legs_and_non_decreasing_dates(self) -> None:
+        first = FlightLeg("MAD", "BCN", date(2026, 9, 1))
+        second = FlightLeg("BCN", "FCO", date(2026, 9, 3))
+        trip = MultiCity((first, second), adults=2, cabin="business")
+        self.assertEqual(trip.legs, (first, second))
+        self.assertEqual(trip.adults, 2)
+        self.assertEqual(trip.cabin, "business")
+        with self.assertRaises(ValueError):
+            MultiCity((first,))
+        with self.assertRaises(ValueError):
+            MultiCity((second, first))
+        same_day = MultiCity(
+            (first, FlightLeg("BCN", "FCO", date(2026, 9, 1))),
+        )
+        self.assertEqual(same_day.legs[1].departure_date, date(2026, 9, 1))
 
     def test_flight_offer_requires_positive_price(self) -> None:
         with self.assertRaises(ValueError):
