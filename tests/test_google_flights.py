@@ -28,8 +28,9 @@ from viajante.google_flights_rpc import (
     build_shopping_inner,
     build_shopping_request,
     parse_shopping_body,
+    shopping_stop_code,
 )
-from viajante.models import FlightQuery
+from viajante.models import FlightLeg, FlightQuery, RoundTrip
 
 GOLDEN_TFS_DIRECT = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
 GOLDEN_TFS_ONE_STOP = "GhwSCjIwMjYtMTItMDQoAWoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
@@ -392,6 +393,22 @@ class ShoppingRpcTests(unittest.TestCase):
         self.assertEqual(flight[6], "2026-09-01")
         self.assertEqual(inner[1][5], 3)
         self.assertEqual(inner[1][6], [2, 0, 0, 0])
+
+    def test_shopping_stop_table_is_not_the_tfs_integer(self) -> None:
+        self.assertEqual(shopping_stop_code(0), 1)
+        self.assertEqual(shopping_stop_code(1), 2)
+        self.assertEqual(shopping_stop_code(2), 3)
+        nonstop = build_shopping_inner(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=0))
+        self.assertEqual(nonstop[1][13][0][3], 1)
+        two_stop = build_shopping_inner(
+            RoundTrip("MAD", "NRT", date(2026, 10, 1), date(2026, 10, 20), max_stops=2)
+        )
+        self.assertEqual(two_stop[1][13][0][3], 3)
+        self.assertEqual(two_stop[1][13][1][3], 3)
+        self.assertEqual(
+            FlightLeg("MAD", "NRT", date(2026, 10, 1), max_stops=2).max_stops,
+            2,
+        )
 
     def test_request_body_is_f_req_envelope(self) -> None:
         query = FlightQuery("MAD", "OPO", date(2026, 10, 9), max_stops=0)

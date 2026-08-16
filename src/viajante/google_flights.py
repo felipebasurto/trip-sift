@@ -24,6 +24,7 @@ from viajante.google_flights_rpc import (
     CompactExplorePlace,
     CompactParseMiss,
     EmptyShoppingResults,
+    RawFlightCard,
     ShoppingRejected,
     build_calendar_request,
     build_explore_request,
@@ -89,21 +90,6 @@ CONSENT_SELECTORS = [
     'text="Rechazar todo"',
     'button:has-text("Accept")',
 ]
-
-
-@dataclass(frozen=True)
-class RawFlightCard:
-    airline: Optional[str]
-    departure: Optional[str]
-    arrival: Optional[str]
-    duration: Optional[str]
-    stops: Optional[str]
-    price: Optional[str]
-    layover_city: Optional[str] = None
-    layover_hours: Optional[float] = None
-    flight_numbers: Optional[tuple[str, ...]] = None
-    airline_codes: Optional[tuple[str, ...]] = None
-    booking_token: Optional[str] = None
 
 
 class NoFlightsFound(Exception):
@@ -456,27 +442,11 @@ class GoogleFlightsHttpSource:
         if response.status >= 400:
             raise CompactParseMiss(f"shopping HTTP {response.status}")
         try:
-            compact = parse_shopping_body(response.text)
+            return parse_shopping_body(response.text)
         except EmptyShoppingResults as exc:
             raise NoFlightsFound() from exc
         except ShoppingRejected as exc:
             raise GoogleFlightsRejected(str(exc)) from exc
-        return tuple(
-            RawFlightCard(
-                airline=card.airline,
-                departure=card.departure,
-                arrival=card.arrival,
-                duration=card.duration,
-                stops=card.stops,
-                price=card.price,
-                layover_city=card.layover_city,
-                layover_hours=card.layover_hours,
-                flight_numbers=card.flight_numbers,
-                airline_codes=card.airline_codes,
-                booking_token=card.booking_token,
-            )
-            for card in compact
-        )
 
     def fetch_calendar(
         self,
