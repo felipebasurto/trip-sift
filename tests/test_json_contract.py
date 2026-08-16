@@ -51,6 +51,8 @@ OFFER_KEYS = {
     "needs_bag_verify",
 }
 ERROR_KEYS = {"code", "message"}
+FLIGHT_FETCH_BACKENDS = {"sweep", "detail", "sweep_then_detail"}
+FORBIDDEN_KEYS = {"co2", "co2_kg", "emissions", "carbon"}
 
 
 def _report() -> SearchReport:
@@ -121,6 +123,17 @@ class JsonContractTests(unittest.TestCase):
 
     def test_error_codes_serialise_as_their_string_values(self) -> None:
         self.assertEqual(self.data["queries"][1]["error"]["code"], "no_results")
+
+    def test_schema_version_stays_1(self) -> None:
+        self.assertEqual(self.data["schema_version"], 1)
+
+    def test_fetch_backend_is_in_the_closed_set(self) -> None:
+        self.assertIn(self.data["fetch_backend"], FLIGHT_FETCH_BACKENDS)
+
+    def test_forbidden_keys_are_absent(self) -> None:
+        blob = json.dumps(self.data)
+        for key in FORBIDDEN_KEYS:
+            self.assertNotIn(f'"{key}"', blob)
 
     def test_the_whole_report_is_json_serialisable(self) -> None:
         json.loads(json.dumps(self.data, ensure_ascii=False))

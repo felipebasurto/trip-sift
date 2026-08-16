@@ -58,6 +58,7 @@ OFFER_KEYS = {
     "link",
 }
 ERROR_KEYS = {"code", "message"}
+FORBIDDEN_KEYS = {"co2", "co2_kg", "emissions", "carbon"}
 
 
 def _offer() -> HotelOffer:
@@ -150,6 +151,14 @@ class HotelJsonContractTests(unittest.TestCase):
 
     def test_error_codes_serialise_as_their_string_values(self) -> None:
         self.assertEqual(self.data["queries"][1]["error"]["code"], "fetch_failed")
+
+    def test_schema_version_stays_1(self) -> None:
+        self.assertEqual(self.data["schema_version"], 1)
+
+    def test_forbidden_keys_are_absent(self) -> None:
+        blob = json.dumps(self.data)
+        for key in FORBIDDEN_KEYS:
+            self.assertNotIn(f'"{key}"', blob)
 
     def test_the_whole_report_is_json_serialisable(self) -> None:
         json.loads(json.dumps(self.data, ensure_ascii=False))
