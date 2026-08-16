@@ -62,8 +62,8 @@ class FlightQuery:
     def __post_init__(self) -> None:
         origin = _normalize_iata(self.origin, role="origin")
         destination = _normalize_iata(self.destination, role="destination")
-        if self.max_stops not in (0, 1):
-            raise ValueError("max_stops must be 0 or 1")
+        if self.max_stops not in (0, 1, 2):
+            raise ValueError("max_stops must be 0, 1, or 2")
         _require_adults(self.adults)
         _require_cabin(self.cabin)
         object.__setattr__(self, "origin", origin)
@@ -143,6 +143,55 @@ Trip = Union[FlightQuery, RoundTrip, MultiCity]
 
 
 @dataclass(frozen=True)
+class RawSegment:
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    departure: Optional[str] = None
+    arrival: Optional[str] = None
+    airline: Optional[str] = None
+    flight_number: Optional[str] = None
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "origin": self.origin,
+            "destination": self.destination,
+            "departure": self.departure,
+            "arrival": self.arrival,
+            "airline": self.airline,
+            "flight_number": self.flight_number,
+        }
+
+
+@dataclass(frozen=True)
+class RawLayover:
+    city: Optional[str] = None
+    hours: Optional[float] = None
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {"city": self.city, "hours": self.hours}
+
+
+@dataclass(frozen=True)
+class RawJourneyLeg:
+    departure: Optional[str]
+    arrival: Optional[str]
+    duration: Optional[str] = None
+    stops: Optional[str] = None
+    segments: Tuple[RawSegment, ...] = ()
+    layovers: Tuple[RawLayover, ...] = ()
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "departure": self.departure,
+            "arrival": self.arrival,
+            "duration": self.duration,
+            "stops": self.stops,
+            "segments": [segment.to_dict() for segment in self.segments],
+            "layovers": [layover.to_dict() for layover in self.layovers],
+        }
+
+
+@dataclass(frozen=True)
 class FlightOffer:
     airline: Optional[str]
     departure: Optional[str]
@@ -159,6 +208,7 @@ class FlightOffer:
     layover_hours: Optional[float] = None
     flight_numbers: Optional[Tuple[str, ...]] = None
     booking_token: Optional[str] = None
+    legs: Tuple[RawJourneyLeg, ...] = ()
 
     def __post_init__(self) -> None:
         if self.price_eur <= 0:
@@ -167,24 +217,44 @@ class FlightOffer:
             raise ValueError("baggage_buffer_eur must not be negative")
         if self.baggage_buffer_eur > 0 and not self.needs_bag_verify:
             raise ValueError("a baggage buffer only applies to a carrier flagged for verification")
+        if not self.legs:
+            layovers: Tuple[RawLayover, ...] = ()
+            if self.layover_city is not None or self.layover_hours is not None:
+                layovers = (RawLayover(city=self.layover_city, hours=self.layover_hours),)
+            object.__setattr__(
+                self,
+                "legs",
+                (
+                    RawJourneyLeg(
+                        departure=self.departure,
+                        arrival=self.arrival,
+                        duration=self.duration,
+                        stops=self.stops,
+                        layovers=layovers,
+                    ),
+                ),
+            )
 
     def to_dict(self) -> Mapping[str, object]:
+        lead = self.legs[0]
+        two_stop = self.stops_count is not None and self.stops_count >= 2
         return {
             "airline": self.airline,
-            "departure": self.departure,
-            "arrival": self.arrival,
+            "departure": lead.departure,
+            "arrival": lead.arrival,
             "price": self.price,
             "price_eur": self.price_eur,
             "duration": self.duration,
             "duration_hours": self.duration_hours,
             "stops": self.stops,
             "stops_count": self.stops_count,
-            "layover_city": self.layover_city,
-            "layover_hours": self.layover_hours,
+            "layover_city": None if two_stop else self.layover_city,
+            "layover_hours": None if two_stop else self.layover_hours,
             "flight_numbers": list(self.flight_numbers) if self.flight_numbers else None,
             "booking_token": self.booking_token,
             "baggage_buffer_eur": self.baggage_buffer_eur,
             "needs_bag_verify": self.needs_bag_verify,
+            "legs": [leg.to_dict() for leg in self.legs],
         }
 
 

@@ -20,7 +20,7 @@ After `uv sync` and `uv run playwright install chromium`, the entry point is ava
 ## Commands
 
 ```bash
-uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--trip {one-way,rt,multi}] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare,duration}] [--airlines CODES] [--exclude-airlines CODES] [--depart-window START-END] [--fetch {auto,sweep,detail}] [--max-layover HOURS] [--min-layover HOURS] [--max-duration HOURS] [--save FILE]
+uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--trip {one-way,rt,multi}] [--max-stops {0,1,2}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare,duration}] [--airlines CODES] [--exclude-airlines CODES] [--depart-window START-END] [--fetch {auto,sweep,detail}] [--max-layover HOURS] [--min-layover HOURS] [--max-duration HOURS] [--save FILE]
 uv run viajante dates ORIGIN-DEST --from YYYY-MM-DD --to YYYY-MM-DD [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--fetch {auto,sweep,detail}] [--save FILE]
 uv run viajante explore ORIGIN --from YYYY-MM-DD [--days N] [--month YYYY-MM] [--top N] [--save FILE]
 uv run viajante airports QUERY

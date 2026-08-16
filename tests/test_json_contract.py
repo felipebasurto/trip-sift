@@ -9,6 +9,8 @@ from viajante.models import (
     FlightQuery,
     QueryFailure,
     QuerySuccess,
+    RawJourneyLeg,
+    RawLayover,
     SearchError,
     SearchErrorCode,
     SearchReport,
@@ -49,6 +51,7 @@ OFFER_KEYS = {
     "booking_token",
     "baggage_buffer_eur",
     "needs_bag_verify",
+    "legs",
 }
 ERROR_KEYS = {"code", "message"}
 FLIGHT_FETCH_BACKENDS = {"sweep", "detail", "sweep_then_detail"}
@@ -120,6 +123,40 @@ class JsonContractTests(unittest.TestCase):
         offer = self.data["queries"][0]["offers"][0]
         self.assertEqual(offer["stops_count"], 0)
         self.assertIsNotNone(offer["stops"])
+        self.assertEqual(len(offer["legs"]), 1)
+        self.assertEqual(offer["legs"][0]["departure"], offer["departure"])
+
+    def test_two_stop_offer_hides_string_layover_city(self) -> None:
+        offer = FlightOffer(
+            airline="Iberia",
+            departure="07:00",
+            arrival="22:00",
+            price="€199",
+            price_eur=199.0,
+            duration="15 hr",
+            duration_hours=15.0,
+            stops="2 stops",
+            stops_count=2,
+            layover_city=None,
+            layover_hours=None,
+            baggage_buffer_eur=0,
+            needs_bag_verify=False,
+            legs=(
+                RawJourneyLeg(
+                    departure="07:00",
+                    arrival="22:00",
+                    duration="15 hr",
+                    stops="2 stops",
+                    layovers=(
+                        RawLayover(city="LIS", hours=2.0),
+                        RawLayover(city="GRU", hours=3.5),
+                    ),
+                ),
+            ),
+        )
+        data = offer.to_dict()
+        self.assertIsNone(data["layover_city"])
+        self.assertEqual([row["city"] for row in data["legs"][0]["layovers"]], ["LIS", "GRU"])
 
     def test_error_codes_serialise_as_their_string_values(self) -> None:
         self.assertEqual(self.data["queries"][1]["error"]["code"], "no_results")

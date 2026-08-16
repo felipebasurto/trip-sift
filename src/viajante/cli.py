@@ -718,8 +718,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--max-stops",
         type=int,
         default=1,
-        choices=[0, 1],
-        help="Maximum stops (default 1)",
+        choices=[0, 1, 2],
+        help="Maximum stops (default 1). 2 means two-or-fewer.",
     )
     flights.add_argument(
         "--trip",

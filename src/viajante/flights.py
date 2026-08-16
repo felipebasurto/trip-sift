@@ -163,7 +163,7 @@ def _probe_query(trip: Trip) -> FlightQuery:
     if isinstance(trip, FlightQuery):
         return trip
     first = trip.legs[0]
-    max_stops = first.max_stops if first.max_stops in (0, 1) else 1
+    max_stops = first.max_stops
     return FlightQuery(
         first.origin,
         first.destination,
@@ -198,8 +198,8 @@ def parse_route_specs(
     adults: int = 1,
     cabin: FlightCabin = "economy",
 ) -> Tuple[FlightQuery, ...]:
-    if max_stops not in (0, 1):
-        raise ValueError("max_stops must be 0 or 1")
+    if max_stops not in (0, 1, 2):
+        raise ValueError("max_stops must be 0, 1, or 2")
     queries: list[FlightQuery] = []
     for spec in specs:
         try:

@@ -108,6 +108,13 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 1)
             search.assert_not_called()
 
+    def test_max_stops_two_reaches_search(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                code = main(["flights", ROUTE, "--max-stops", "2"])
+        self.assertEqual(code, 0)
+        self.assertEqual(search.call_args.args[0][0].max_stops, 2)
+
     def test_prints_results(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()):
             with patch("viajante.cli._print_report") as printer:

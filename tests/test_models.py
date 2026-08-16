@@ -34,8 +34,9 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(q.destination, "BCN")
         self.assertEqual(q.adults, 1)
         self.assertEqual(q.cabin, "economy")
+        self.assertEqual(FlightQuery("MAD", "NRT", date(2026, 9, 1), max_stops=2).max_stops, 2)
         with self.assertRaises(ValueError):
-            FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=2)
+            FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=3)
         with self.assertRaises(ValueError):
             FlightQuery("MAD", "BCN", date(2026, 9, 1), adults=0)
         with self.assertRaises(ValueError):
