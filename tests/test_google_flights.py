@@ -486,6 +486,16 @@ class ShoppingRpcTests(unittest.TestCase):
         inner = json.loads(envelope[1])
         self.assertEqual(inner[1][13][0][1], [[["OPO", 0]]])
 
+    def test_journey_list_keeps_outbound_clocks_and_package_price(self) -> None:
+        outbound = _itinerary(airline="Iberia", dep=(8, 0), arr=(9, 10), minutes=70, price=40)[0]
+        inbound = _itinerary(airline="Iberia", dep=(18, 0), arr=(19, 20), minutes=80, price=40)[0]
+        item = [[outbound, inbound], [[None, 199], "tok"]]
+        card = parse_shopping_body(_compact_body(item))[0]
+        self.assertEqual(card.departure, "08:00")
+        self.assertEqual(card.arrival, "09:10")
+        self.assertEqual(card.price, "€199")
+        self.assertEqual(card.booking_token, "tok")
+
     def test_compact_body_yields_raw_card_fields(self) -> None:
         body = _compact_body(
             _itinerary(

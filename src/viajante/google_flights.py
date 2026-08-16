@@ -391,15 +391,15 @@ class GoogleFlightsHttpSource:
         self._timeout = timeout
         self.config = SimpleNamespace(html_lang=html_lang, currency=currency)
 
-    def fetch(self, query: FlightQuery) -> tuple[RawFlightCard, ...]:
+    def fetch(self, trip: Trip) -> tuple[RawFlightCard, ...]:
         client = self._ensure_client()
         try:
-            return self._fetch_compact(client, query)
+            return self._fetch_compact(client, trip)
         except (GoogleFlightsBlocked, NoFlightsFound, GoogleFlightsRejected):
             raise
         except CompactParseMiss:
             pass
-        url = build_search_url(query, html_lang=self._html_lang, currency=self._currency)
+        url = build_search_url(trip, html_lang=self._html_lang, currency=self._currency)
         html, _final_url = fetch_search_html(url, client=client, timeout=self._timeout)
         return parse_http_flight_cards(html)
 
@@ -424,10 +424,10 @@ class GoogleFlightsHttpSource:
             self._owned_client = None
 
     def _fetch_compact(
-        self, client: SweepHttpClient, query: FlightQuery
+        self, client: SweepHttpClient, trip: Trip
     ) -> tuple[RawFlightCard, ...]:
         url, body = build_shopping_request(
-            query, html_lang=self._html_lang, currency=self._currency
+            trip, html_lang=self._html_lang, currency=self._currency
         )
         try:
             response = client.post(
@@ -526,11 +526,11 @@ class GoogleFlightsSource:
     def config(self) -> BrowserSessionConfig:
         return self._config
 
-    def fetch(self, query: FlightQuery) -> tuple[RawFlightCard, ...]:
+    def fetch(self, trip: Trip) -> tuple[RawFlightCard, ...]:
         return parse_flight_cards(
             self._fetch_html(
                 build_search_url(
-                    query,
+                    trip,
                     html_lang=self._config.html_lang,
                     currency=self._config.currency,
                 )

@@ -32,6 +32,7 @@ from viajante.models import (
     SearchError,
     SearchErrorCode,
     SearchReport,
+    Trip,
 )
 from viajante.orchestration import (
     MAX_ATTEMPTS,
@@ -151,11 +152,43 @@ class _SourceConfig(Protocol):
 class _FlightSource(Protocol):
     config: _SourceConfig
 
-    def fetch(self, query: FlightQuery) -> Sequence[RawFlightCard]: ...
+    def fetch(self, trip: Trip) -> Sequence[RawFlightCard]: ...
 
     def reset(self) -> None: ...
 
     def close(self) -> None: ...
+
+
+def _probe_query(trip: Trip) -> FlightQuery:
+    if isinstance(trip, FlightQuery):
+        return trip
+    first = trip.legs[0]
+    max_stops = first.max_stops if first.max_stops in (0, 1) else 1
+    return FlightQuery(
+        first.origin,
+        first.destination,
+        first.departure_date,
+        max_stops=max_stops,
+        adults=trip.adults,
+        cabin=trip.cabin,
+    )
+
+
+def _trip_max_stops(trip: Trip) -> int:
+    if isinstance(trip, (FlightQuery, RoundTrip)):
+        return trip.max_stops
+    return max(leg.max_stops for leg in trip.legs)
+
+
+def _progress_label(trip: Trip) -> str:
+    if isinstance(trip, FlightQuery):
+        return (
+            f"{trip.origin} -> {trip.destination} {trip.departure_date.isoformat()}"
+        )
+    return " / ".join(
+        f"{leg.origin} -> {leg.destination} {leg.departure_date.isoformat()}"
+        for leg in trip.legs
+    )
 
 
 def parse_route_specs(
@@ -553,7 +586,7 @@ def _rank_offers(
 
 
 def _run_search(
-    queries: Sequence[FlightQuery],
+    trips: Sequence[Trip],
     *,
     top: int,
     source: _FlightSource,
@@ -577,23 +610,21 @@ def _run_search(
 ) -> SearchReport:
     report_progress = progress or (lambda _: None)
     results: list[QueryResult] = []
-    for index, query in enumerate(queries):
-        report_progress(
-            f"[{index + 1}/{len(queries)}] {query.origin} -> {query.destination} "
-            f"{query.departure_date.isoformat()}"
-        )
+    for index, trip in enumerate(trips):
+        probe = _probe_query(trip)
+        report_progress(f"[{index + 1}/{len(trips)}] {_progress_label(trip)}")
         outcome: Optional[QueryResult] = None
         failure: Optional[SearchError] = None
         for attempt in range(MAX_ATTEMPTS):
             try:
-                cards = source.fetch(query)
+                cards = source.fetch(trip)
                 eligible = [
                     offer
                     for raw in cards
                     if (
                         offer := _normalize_offer(
                             raw,
-                            query.max_stops,
+                            _trip_max_stops(trip),
                             buffer_eur=buffer_eur,
                             max_layover_hours=max_layover_hours,
                             min_layover_hours=min_layover_hours,
@@ -606,7 +637,7 @@ def _run_search(
                     is not None
                 ]
                 outcome = QuerySuccess(
-                    query=query,
+                    query=probe,
                     raw_count=len(cards),
                     eligible_count=len(eligible),
                     offers=_rank_offers(eligible, top=top, sort=sort),
@@ -621,7 +652,7 @@ def _run_search(
                     sleep(retry_backoff_seconds(attempt, random_gen))
         if outcome is None:
             outcome = QueryFailure(
-                query=query,
+                query=probe,
                 error=failure
                 or SearchError(
                     code=SearchErrorCode.FETCH_FAILED,
@@ -630,7 +661,7 @@ def _run_search(
             )
             report_progress(f"  {outcome.error.code.value}: {outcome.error.message}")
         results.append(outcome)
-        if index + 1 < len(queries):
+        if index + 1 < len(trips):
             sleep(inter_query_delay(random_gen))
     return SearchReport(
         searched_at=now(),
@@ -659,7 +690,7 @@ def _attach_fetch_meta(
 
 
 def _search_with_source(
-    queries: Sequence[FlightQuery],
+    trips: Sequence[Trip],
     *,
     source: _FlightSource,
     top: int,
@@ -676,7 +707,7 @@ def _search_with_source(
 ) -> SearchReport:
     try:
         return _run_search(
-            queries,
+            trips,
             top=top,
             source=source,
             sleep=time.sleep,
@@ -700,7 +731,7 @@ def _search_with_source(
 
 
 def search_flights(
-    queries: Sequence[FlightQuery],
+    queries: Sequence[Trip],
     *,
     top: int = 8,
     buffer_eur: int = DEFAULT_BAGGAGE_BUFFER_EUR,
@@ -736,14 +767,20 @@ def search_flights(
         raise ValueError("sort must be 'ranked', 'fare', or 'duration'")
     if fetch not in ("auto", "sweep", "detail"):
         raise ValueError("fetch must be 'auto', 'sweep', or 'detail'")
-    planned = resolve_fetch_mode(fetch, len(queries))
+    trips = tuple(queries)
+    planned = resolve_fetch_mode(fetch, len(trips))
+    if any(isinstance(trip, MultiCity) for trip in trips) and planned == "detail":
+        if fetch == "auto":
+            planned = "sweep"
+        else:
+            raise ValueError("--trip multi does not support --fetch detail yet")
     report_progress = progress or (lambda _: None)
     started = time.perf_counter()
     if planned == "sweep":
-        noun = "query" if len(queries) == 1 else "queries"
-        report_progress(f"fetch: sweep ({len(queries)} {noun})")
+        noun = "query" if len(trips) == 1 else "queries"
+        report_progress(f"fetch: sweep ({len(trips)} {noun})")
         report = _search_with_source(
-            queries,
+            trips,
             source=GoogleFlightsHttpSource(),
             top=top,
             buffer_eur=buffer_eur,
@@ -762,9 +799,9 @@ def search_flights(
         ]
         if retry_indexes:
             report_progress("sweep empty/markup/block; falling back to detail")
-            retry_queries = tuple(report.queries[index].query for index in retry_indexes)
+            retry_trips = tuple(trips[index] for index in retry_indexes)
             detail_report = _search_with_source(
-                retry_queries,
+                retry_trips,
                 source=GoogleFlightsSource(default_state_dir()),
                 top=top,
                 buffer_eur=buffer_eur,
@@ -791,10 +828,10 @@ def search_flights(
         else:
             backend = "sweep"
     else:
-        noun = "query" if len(queries) == 1 else "queries"
-        report_progress(f"fetch: detail ({len(queries)} {noun})")
+        noun = "query" if len(trips) == 1 else "queries"
+        report_progress(f"fetch: detail ({len(trips)} {noun})")
         report = _search_with_source(
-            queries,
+            trips,
             source=GoogleFlightsSource(default_state_dir()),
             top=top,
             buffer_eur=buffer_eur,

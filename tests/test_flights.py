@@ -82,14 +82,23 @@ class FakeSource:
         self.closed = False
         self.config = SimpleNamespace(html_lang="en", currency="EUR")
 
-    def fetch(self, query: FlightQuery) -> Sequence[RawFlightCard]:
+    def fetch(self, query) -> Sequence[RawFlightCard]:
         self.fetch_calls += 1
-        key = (
-            query.origin,
-            query.destination,
-            query.departure_date.isoformat(),
-            query.max_stops,
-        )
+        if isinstance(query, FlightQuery):
+            key = (
+                query.origin,
+                query.destination,
+                query.departure_date.isoformat(),
+                query.max_stops,
+            )
+        else:
+            first = query.legs[0]
+            key = (
+                first.origin,
+                first.destination,
+                first.departure_date.isoformat(),
+                first.max_stops,
+            )
         response = self.responses.get(key)
         if isinstance(response, Exception):
             raise response
@@ -473,6 +482,20 @@ class FlightsOrchestrationTests(unittest.TestCase):
                 trip="multi",
                 max_stops=1,
             )
+
+    def test_round_trip_search_fetches_once(self) -> None:
+        trip = RoundTrip("MAD", "OPO", date(2026, 10, 9), date(2026, 10, 12), max_stops=1)
+        source = FakeSource(
+            {("MAD", "OPO", "2026-10-09", 1): (card(airline="TAP", price="120 €"),)}
+        )
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=source):
+            report = search_flights((trip,), top=3, fetch="sweep")
+        self.assertEqual(source.fetch_calls, 1)
+        self.assertEqual(len(report.queries), 1)
+        self.assertEqual(report.queries[0].query.origin, "MAD")
+        self.assertEqual(report.queries[0].query.destination, "OPO")
+        assert isinstance(report.queries[0], QuerySuccess)
+        self.assertEqual(report.queries[0].offers[0].price_eur, 120.0)
 
     def test_search_closes_source(self) -> None:
         query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)

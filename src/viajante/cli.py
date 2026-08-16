@@ -50,6 +50,7 @@ from viajante.models import (
     QueryFailure,
     QuerySuccess,
     RoundTrip,
+    Trip,
 )
 
 FLIGHTS_EXAMPLES = """\
@@ -95,7 +96,7 @@ Examples:
 """
 
 
-def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
+def _parse_and_validate(args: argparse.Namespace) -> Tuple[Trip, ...]:
     if args.top <= 0:
         raise ValueError("--top must be a positive integer")
     if args.baggage_buffer < 0:
@@ -128,9 +129,13 @@ def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
     for departure in _plan_departure_dates(plan):
         if departure < today:
             raise ValueError(f"departure date is in the past: {departure.isoformat()}")
+    return _as_trips(plan)
+
+
+def _as_trips(plan: object) -> Tuple[Trip, ...]:
     if isinstance(plan, (RoundTrip, MultiCity)):
-        raise ValueError(f"--trip {args.trip} is not implemented yet")
-    return plan
+        return (plan,)
+    return tuple(plan)  # type: ignore[arg-type]
 
 
 def _plan_departure_dates(plan: object) -> Tuple[date, ...]:
@@ -720,7 +725,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--trip",
         default="one-way",
         choices=["one-way", "rt", "multi"],
-        help="Trip kind (default one-way). rt and multi exit until native package search lands.",
+        help=(
+            "Trip kind (default one-way). rt and multi POST one package. "
+            "Sugar without --trip stays two one-ways."
+        ),
     )
     flights.add_argument(
         "--adults",

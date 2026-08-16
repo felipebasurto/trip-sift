@@ -375,11 +375,10 @@ class ReportRenderingTests(unittest.TestCase):
                 main(["flights", ROUTE])
         self.assertEqual(search.call_args.kwargs["fetch"], "auto")
 
-    def test_trip_rt_and_multi_exit_before_search(self) -> None:
+    def test_trip_rt_and_multi_reject_bad_grammar(self) -> None:
         cases = (
             ["flights", "--trip", "rt", "MAD-BCN:2026-09-01"],
             ["flights", "--trip", "multi", "MAD-BCN:2026-09-01"],
-            ["flights", "--trip", "rt", "MAD-OPO:2026-10-09:2026-10-12"],
         )
         for argv in cases:
             with self.subTest(argv=argv):
@@ -390,6 +389,17 @@ class ReportRenderingTests(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertTrue(stderr.getvalue().startswith("error:"))
                 search.assert_not_called()
+
+    def test_trip_rt_reaches_search_as_one_package(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                code = main(
+                    ["flights", "--trip", "rt", "MAD-OPO:2026-10-09:2026-10-12", "--fetch", "sweep"]
+                )
+        self.assertEqual(code, 0)
+        trips = search.call_args.args[0]
+        self.assertEqual(len(trips), 1)
+        self.assertEqual(type(trips[0]).__name__, "RoundTrip")
 
     def test_trip_one_way_keeps_rt_sugar(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()) as search:

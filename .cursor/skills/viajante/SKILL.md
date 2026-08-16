@@ -20,14 +20,14 @@ After `uv sync` and `uv run playwright install chromium`, the entry point is ava
 ## Commands
 
 ```bash
-uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare,duration}] [--airlines CODES] [--exclude-airlines CODES] [--depart-window START-END] [--fetch {auto,sweep,detail}] [--max-layover HOURS] [--min-layover HOURS] [--max-duration HOURS] [--save FILE]
+uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--trip {one-way,rt,multi}] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare,duration}] [--airlines CODES] [--exclude-airlines CODES] [--depart-window START-END] [--fetch {auto,sweep,detail}] [--max-layover HOURS] [--min-layover HOURS] [--max-duration HOURS] [--save FILE]
 uv run viajante dates ORIGIN-DEST --from YYYY-MM-DD --to YYYY-MM-DD [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--fetch {auto,sweep,detail}] [--save FILE]
 uv run viajante explore ORIGIN --from YYYY-MM-DD [--days N] [--month YYYY-MM] [--top N] [--save FILE]
 uv run viajante airports QUERY
 uv run viajante hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
 ```
 
-Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one route. `MAD-OPO:2026-10-09:2026-10-12` is sugar for outbound + return as two one-way queries. You can still pass a return leg as a second route.
+Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one route. `MAD-OPO:2026-10-09:2026-10-12` is sugar for outbound + return as two one-way queries. `--trip rt` on that token POSTs one package. The sugar without `--trip` stays two one-ways. You can still pass a return leg as a second route.
 
 ## Smoke
 

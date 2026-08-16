@@ -392,10 +392,7 @@ def _iter_group(group: object) -> list[Any]:
     return [item for item in group if _looks_like_itinerary(item)]
 
 
-def _looks_like_itinerary(item: object) -> bool:
-    if not isinstance(item, list) or len(item) < 2:
-        return False
-    flight = item[0]
+def _looks_like_flight(flight: object) -> bool:
     if not isinstance(flight, list) or len(flight) < 10:
         return False
     airlines = flight[1]
@@ -406,8 +403,38 @@ def _looks_like_itinerary(item: object) -> bool:
     return isinstance(flight[9], int)
 
 
+def _journey_flights(head: object) -> Optional[list[Any]]:
+    if not isinstance(head, list) or not head:
+        return None
+    flights = [item for item in head if _looks_like_flight(item)]
+    if len(flights) >= 2:
+        return flights
+    return None
+
+
+def _looks_like_itinerary(item: object) -> bool:
+    if not isinstance(item, list) or len(item) < 2:
+        return False
+    head = item[0]
+    if _looks_like_flight(head):
+        return True
+    return _journey_flights(head) is not None
+
+
+def _primary_flight(item: list[Any]) -> Optional[list[Any]]:
+    head = item[0]
+    if _looks_like_flight(head):
+        return head
+    flights = _journey_flights(head)
+    if flights is None:
+        return None
+    return flights[0]
+
+
 def _itinerary_to_card(item: list[Any]) -> Optional[RawFlightCard]:
-    flight = item[0]
+    flight = _primary_flight(item)
+    if flight is None:
+        return None
     airlines = [name for name in flight[1] if isinstance(name, str)]
     price = _price_text(item[1])
     if price is None:
