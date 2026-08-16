@@ -33,7 +33,7 @@ from viajante.google_flights_rpc import (
     parse_explore_body,
     parse_shopping_body,
 )
-from viajante.models import FlightCabin, FlightQuery
+from viajante.models import FlightCabin, FlightQuery, Trip
 from viajante.tfs import encode_tfs
 
 SEARCH_URL = "https://www.google.com/travel/flights"
@@ -116,13 +116,13 @@ class GoogleFlightsRejected(RuntimeError):
 
 
 def build_search_params(
-    query: FlightQuery,
+    trip: Trip,
     *,
     html_lang: str = SCRAPE_LANGUAGE,
     currency: str = SCRAPE_CURRENCY,
 ) -> dict[str, str]:
     return {
-        "tfs": encode_tfs(query),
+        "tfs": encode_tfs(trip),
         "hl": html_lang,
         "tfu": RESULT_TABS,
         "curr": currency,
@@ -130,12 +130,12 @@ def build_search_params(
 
 
 def build_search_url(
-    query: FlightQuery,
+    trip: Trip,
     *,
     html_lang: str = SCRAPE_LANGUAGE,
     currency: str = SCRAPE_CURRENCY,
 ) -> str:
-    params = build_search_params(query, html_lang=html_lang, currency=currency)
+    params = build_search_params(trip, html_lang=html_lang, currency=currency)
     return f"{SEARCH_URL}?{urlencode(params)}"
 
 

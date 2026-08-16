@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import unittest
 from datetime import date
@@ -25,17 +26,23 @@ from viajante.google_flights_rpc import (
     CompactParseMiss,
     EmptyShoppingResults,
     ShoppingRejected,
+    build_search_constraints,
     build_shopping_inner,
     build_shopping_request,
     parse_shopping_body,
     shopping_stop_code,
 )
-from viajante.models import FlightLeg, FlightQuery, RoundTrip
+from viajante.models import FlightLeg, FlightQuery, MultiCity, RoundTrip
+from viajante.tfs import _encode_legs, encode_tfs
 
 GOLDEN_TFS_DIRECT = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
 GOLDEN_TFS_ONE_STOP = "GhwSCjIwMjYtMTItMDQoAWoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
+GOLDEN_TFS_TWO_STOP = "GhwSCjIwMjYtMTItMDQoAmoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
 GOLDEN_TFS_TWO_ADULTS = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgIBAUgBmAEC"
 GOLDEN_TFS_BUSINESS = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAOYAQI="
+GOLDEN_TFS_ROUND_TRIP = (
+    "GhwSCjIwMjYtMTAtMDkoAWoFEgNNQURyBRIDT1BPGhwSCjIwMjYtMTAtMTIoAWoFEgNPUE9yBRIDTUFEQgEBSAGYAQE="
+)
 GOLDEN_URL_DIRECT = (
     "https://www.google.com/travel/flights?"
     "tfs=GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAGYAQI%3D"
@@ -121,6 +128,31 @@ class QueryEncodingTests(unittest.TestCase):
         self.assertEqual(params["tfs"], GOLDEN_TFS_BUSINESS)
         self.assertEqual(params["hl"], "en")
         self.assertEqual(params["curr"], "EUR")
+
+    def test_two_stop_one_way_uses_tfs_field_five_value_two(self) -> None:
+        encoded = _encode_legs(
+            (FlightLeg("MAD", "BCN", date(2026, 12, 4), max_stops=2),),
+            adults=1,
+            cabin="economy",
+            trip_kind=2,
+        )
+        self.assertEqual(encoded, GOLDEN_TFS_TWO_STOP)
+        self.assertIn(b"\x28\x02", base64.b64decode(encoded))
+
+    def test_round_trip_repeats_flight_data_and_sets_trip_kind(self) -> None:
+        trip = RoundTrip("MAD", "OPO", date(2026, 10, 9), date(2026, 10, 12), max_stops=1)
+        self.assertEqual(encode_tfs(trip), GOLDEN_TFS_ROUND_TRIP)
+        self.assertEqual(build_search_params(trip)["tfs"], GOLDEN_TFS_ROUND_TRIP)
+
+    def test_multi_city_tfs_is_gated(self) -> None:
+        trip = MultiCity(
+            (
+                FlightLeg("MAD", "BCN", date(2026, 9, 1)),
+                FlightLeg("BCN", "FCO", date(2026, 9, 3)),
+            )
+        )
+        with self.assertRaises(ValueError):
+            encode_tfs(trip)
 
     def test_html_lang_and_currency_args_reach_url_params(self) -> None:
         params = build_search_params(
@@ -409,6 +441,36 @@ class ShoppingRpcTests(unittest.TestCase):
             FlightLeg("MAD", "NRT", date(2026, 10, 1), max_stops=2).max_stops,
             2,
         )
+
+    def test_round_trip_shopping_sets_kind_and_return_classifier(self) -> None:
+        trip = RoundTrip("MAD", "OPO", date(2026, 10, 9), date(2026, 10, 12), max_stops=1)
+        inner = build_shopping_inner(trip)
+        self.assertEqual(inner[1][2], 1)
+        outbound, inbound = inner[1][13]
+        self.assertEqual(outbound[14], 3)
+        self.assertEqual(inbound[14], 1)
+        self.assertEqual(outbound[6], "2026-10-09")
+        self.assertEqual(inbound[6], "2026-10-12")
+
+    def test_multi_city_shopping_kind_keeps_outbound_classifier(self) -> None:
+        trip = MultiCity(
+            (
+                FlightLeg("MAD", "BCN", date(2026, 9, 1)),
+                FlightLeg("BCN", "FCO", date(2026, 9, 3)),
+                FlightLeg("FCO", "MAD", date(2026, 9, 6)),
+            )
+        )
+        constraints = build_search_constraints(trip)
+        self.assertEqual(constraints[2], 3)
+        self.assertEqual([segment[14] for segment in constraints[13]], [3, 3, 3])
+
+    def test_selected_flight_lands_on_the_first_segment(self) -> None:
+        pinned = ["tok"]
+        constraints = build_search_constraints(
+            FlightQuery("MAD", "BCN", date(2026, 9, 1)),
+            selected_flight=pinned,
+        )
+        self.assertEqual(constraints[13][0][8], pinned)
 
     def test_request_body_is_f_req_envelope(self) -> None:
         query = FlightQuery("MAD", "OPO", date(2026, 10, 9), max_stops=0)

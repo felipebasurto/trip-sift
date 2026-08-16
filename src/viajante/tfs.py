@@ -1,11 +1,11 @@
-"""Encode a one-way Google Flights tfs query from FlightQuery."""
+"""Encode a Google Flights tfs query from a Trip."""
 
 from __future__ import annotations
 
 import base64
 from collections.abc import Mapping, Sequence
 
-from viajante.models import FlightCabin, FlightQuery
+from viajante.models import FlightCabin, FlightLeg, FlightQuery, MultiCity, RoundTrip, Trip
 
 _VARINT = 0
 _LEN = 2
@@ -29,12 +29,28 @@ _SEAT: Mapping[FlightCabin, int] = {
     "first": 4,
 }
 _TRIP_ONE_WAY = 2
+_TRIP_ROUND_TRIP = 1
 _PASSENGER_ADULT = 1
 
 
-def encode_tfs(query: FlightQuery) -> str:
-    """Encode a one-way Google Flights `tfs` query parameter."""
-    return base64.b64encode(_info(query)).decode("ascii")
+def encode_tfs(trip: Trip) -> str:
+    """Encode a Google Flights `tfs` query parameter."""
+    if isinstance(trip, MultiCity):
+        raise ValueError("multi-city tfs is gated on a captured Google search URL")
+    return _encode_legs(
+        trip.legs,
+        adults=trip.adults,
+        cabin=trip.cabin,
+        trip_kind=_tfs_trip_kind(trip),
+    )
+
+
+def _tfs_trip_kind(trip: Trip) -> int:
+    if isinstance(trip, RoundTrip):
+        return _TRIP_ROUND_TRIP
+    if isinstance(trip, FlightQuery):
+        return _TRIP_ONE_WAY
+    raise ValueError("multi-city tfs is gated on a captured Google search URL")
 
 
 def _varint(n: int) -> bytes:
@@ -74,20 +90,28 @@ def _airport(code: str) -> bytes:
     return _string(_AIRPORT_CODE, code)
 
 
-def _flight_data(query: FlightQuery) -> bytes:
+def _flight_data(leg: FlightLeg) -> bytes:
     return (
-        _string(_FLIGHT_DATE, query.departure_date.isoformat())
-        + _varint_field(_FLIGHT_MAX_STOPS, query.max_stops)
-        + _len_delim(_FLIGHT_FROM, _airport(query.origin))
-        + _len_delim(_FLIGHT_TO, _airport(query.destination))
+        _string(_FLIGHT_DATE, leg.departure_date.isoformat())
+        + _varint_field(_FLIGHT_MAX_STOPS, leg.max_stops)
+        + _len_delim(_FLIGHT_FROM, _airport(leg.origin))
+        + _len_delim(_FLIGHT_TO, _airport(leg.destination))
     )
 
 
-def _info(query: FlightQuery) -> bytes:
-    passengers = (_PASSENGER_ADULT,) * query.adults
-    return (
-        _len_delim(_INFO_DATA, _flight_data(query))
+def _encode_legs(
+    legs: Sequence[FlightLeg],
+    *,
+    adults: int,
+    cabin: FlightCabin,
+    trip_kind: int,
+) -> str:
+    passengers = (_PASSENGER_ADULT,) * adults
+    flights = b"".join(_len_delim(_INFO_DATA, _flight_data(leg)) for leg in legs)
+    payload = (
+        flights
         + _packed_enums(_INFO_PASSENGERS, passengers)
-        + _varint_field(_INFO_SEAT, _SEAT[query.cabin])
-        + _varint_field(_INFO_TRIP, _TRIP_ONE_WAY)
+        + _varint_field(_INFO_SEAT, _SEAT[cabin])
+        + _varint_field(_INFO_TRIP, trip_kind)
     )
+    return base64.b64encode(payload).decode("ascii")

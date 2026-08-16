@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
-from viajante.models import FlightCabin, FlightQuery, Trip
+from viajante.models import FlightCabin, FlightQuery, MultiCity, RoundTrip, Trip
 
 SHOPPING_RESULTS_URL = (
     "https://www.google.com/_/FlightsFrontendUi/data/"
@@ -31,6 +31,10 @@ _SEAT: Mapping[FlightCabin, int] = {
     "first": 4,
 }
 _TRIP_ONE_WAY = 2
+_TRIP_ROUND_TRIP = 1
+_TRIP_MULTI_CITY = 3
+_SEGMENT_OUTBOUND = 3
+_SEGMENT_RETURN = 1
 _ANTI_XSSI = ")]}'"
 # viajante max_stops -> shopping segment[3]. TFS field 5 stays the viajante integer.
 _SHOPPING_STOPS: Mapping[int, int] = {0: 1, 1: 2, 2: 3}
@@ -83,12 +87,28 @@ def shopping_stop_code(max_stops: int) -> int:
         raise ValueError("max_stops must be 0, 1, or 2") from None
 
 
+def _shopping_trip_kind(trip: Trip) -> int:
+    if isinstance(trip, RoundTrip):
+        return _TRIP_ROUND_TRIP
+    if isinstance(trip, MultiCity):
+        return _TRIP_MULTI_CITY
+    return _TRIP_ONE_WAY
+
+
+def _segment_classifier(trip: Trip, index: int) -> int:
+    if isinstance(trip, RoundTrip) and index == 1:
+        return _SEGMENT_RETURN
+    return _SEGMENT_OUTBOUND
+
+
 def _shopping_segment(
     *,
     origin: str,
     destination: Optional[str],
     departure_date: date,
     max_stops: int,
+    classifier: int = _SEGMENT_OUTBOUND,
+    selected_flight: Any = None,
 ) -> list[Any]:
     dest_field: Any = [[[destination, 0]]] if destination else []
     return [
@@ -100,13 +120,13 @@ def _shopping_segment(
         None,
         departure_date.isoformat(),
         None,
+        selected_flight,
         None,
         None,
         None,
         None,
         None,
-        None,
-        3,
+        classifier,
     ]
 
 
@@ -115,11 +135,12 @@ def _constraints_from_segments(
     *,
     adults: int,
     cabin: FlightCabin,
+    trip_kind: int = _TRIP_ONE_WAY,
 ) -> list[Any]:
     return [
         None,
         None,
-        _TRIP_ONE_WAY,
+        trip_kind,
         None,
         [],
         _SEAT[cabin],
@@ -138,7 +159,11 @@ def _constraints_from_segments(
     ]
 
 
-def build_search_constraints(trip: Trip) -> list[Any]:
+def build_search_constraints(
+    trip: Trip,
+    *,
+    selected_flight: Any = None,
+) -> list[Any]:
     return _constraints_from_segments(
         [
             _shopping_segment(
@@ -146,11 +171,14 @@ def build_search_constraints(trip: Trip) -> list[Any]:
                 destination=leg.destination,
                 departure_date=leg.departure_date,
                 max_stops=leg.max_stops,
+                classifier=_segment_classifier(trip, index),
+                selected_flight=selected_flight if index == 0 else None,
             )
-            for leg in trip.legs
+            for index, leg in enumerate(trip.legs)
         ],
         adults=trip.adults,
         cabin=trip.cabin,
+        trip_kind=_shopping_trip_kind(trip),
     )
 
 
