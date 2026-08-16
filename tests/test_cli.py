@@ -52,8 +52,9 @@ def _offer(
     price_eur: float = 129.0,
     baggage_buffer_eur: int = 0,
     needs_bag_verify: bool = False,
-    layover_city: Optional[str] = None,
+        layover_city: Optional[str] = None,
     layover_hours: Optional[float] = None,
+    booking_token: Optional[str] = None,
 ) -> FlightOffer:
     return FlightOffer(
         airline=airline,
@@ -69,6 +70,7 @@ def _offer(
         layover_hours=layover_hours,
         baggage_buffer_eur=baggage_buffer_eur,
         needs_bag_verify=needs_bag_verify,
+        booking_token=booking_token,
     )
 
 
@@ -270,6 +272,12 @@ class ReportRenderingTests(unittest.TestCase):
         output = _rendered(_report(_offer(airline="A" * 60)))
         self.assertIn("…", output)
         self.assertNotIn("A" * 41, output)
+
+    def test_booking_token_prints_a_google_flights_url(self) -> None:
+        output = _rendered(_report(_offer(booking_token="tok")))
+        self.assertIn("https://www.google.com/travel/flights", output)
+        self.assertIn("booking_token=tok", output)
+        self.assertNotIn("https://www.google.com/travel/flights", _rendered(_report(_offer())))
 
     def test_flight_success_prints_eligible_counts(self) -> None:
         output = _rendered(_report(_offer()))

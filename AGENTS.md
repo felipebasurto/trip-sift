@@ -28,7 +28,7 @@
 - Detail delays: 4.5s + up to 1.5s jitter between queries; 3 attempts with 8s exponential backoff + jitter; browser reset after each failed attempt.
 - No flags to shorten detail delays or parallelize requests. Progress output is allowed and goes to stderr.
 - Retry only what can succeed on a second try. `no_results`, `rejected`, `blocked`, `markup_drift`, and `browser_unavailable` fail immediately (no second attempt). Booking card-wait timeouts (`BookingResultsTimeout`, still `fetch_failed`) also fail immediately. Do not hammer Booking after a challenge page. Sweep empty or `blocked` may still fall back to detail once; `rejected` and `markup_drift` do not.
-- Every offer keeps raw text beside parsed fields (`price`/`price_eur`, `duration`/`duration_hours`, `stops`/`stops_count`). Sweep and detail clocks are 24-hour `HH:MM`. 1-stop cards may also carry `layover_city` / `layover_hours`.
+- Every offer keeps raw text beside parsed fields (`price`/`price_eur`, `duration`/`duration_hours`, `stops`/`stops_count`). Sweep and detail clocks are 24-hour `HH:MM`. 1-stop cards may also carry `layover_city` / `layover_hours`. When `booking_token` is present the CLI prints a Google Flights URL. URL emission only. No passenger fields. No payment. No POST to a booking endpoint.
 - JSON output only with `--save`. Browser state lives outside the checkout (`VIAJANTE_STATE_DIR` or XDG state dir), and is always written to a temp file and renamed. Booking fetch failures dump `booking-last-failure.html` / `.txt` there for diagnosis; do not commit those files.
 
 ### Flights

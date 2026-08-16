@@ -33,6 +33,7 @@ from viajante.flights import (
     search_flights,
     write_report_atomic,
 )
+from viajante.google_flights import build_itinerary_url
 from viajante.hotels import search_hotels, write_hotel_report_atomic
 from viajante.models import (
     AppliedHotelFilters,
@@ -286,6 +287,8 @@ def _print_report(report, *, sort: FlightSort = "ranked") -> None:
                     f"{_format_stops_with_layover(offer):<16} {times:<18} "
                     f"{_format_airline(offer.airline)}"
                 )
+                if offer.booking_token:
+                    print(f"    {build_itinerary_url(offer.booking_token)}")
             print(
                 f"  Raw: {result.raw_count}; "
                 f"eligible: {result.eligible_count}; "

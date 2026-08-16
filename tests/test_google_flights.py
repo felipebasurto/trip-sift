@@ -15,6 +15,7 @@ from viajante.google_flights import (
     GoogleFlightsRejected,
     NoFlightsFound,
     SweepHttpResponse,
+    build_itinerary_url,
     build_search_params,
     build_search_url,
     extract_main_html,
@@ -114,6 +115,16 @@ class QueryEncodingTests(unittest.TestCase):
         self.assertEqual(params["tfs"], GOLDEN_TFS_TWO_ADULTS)
         self.assertEqual(params["hl"], "en")
         self.assertEqual(params["curr"], "EUR")
+
+    def test_booking_token_builds_a_google_flights_url(self) -> None:
+        url = build_itinerary_url("tok")
+        parsed = parse_qs(urlparse(url).query)
+        self.assertEqual(urlparse(url).path, "/travel/flights")
+        self.assertEqual(parsed["hl"], ["en"])
+        self.assertEqual(parsed["curr"], ["EUR"])
+        self.assertEqual(parsed["booking_token"], ["tok"])
+        with self.assertRaises(ValueError):
+            build_itinerary_url("   ")
 
     def test_business_cabin_query_matches_the_golden_tfs(self) -> None:
         params = build_search_params(

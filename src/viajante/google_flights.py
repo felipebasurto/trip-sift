@@ -139,6 +139,21 @@ def build_search_url(
     return f"{SEARCH_URL}?{urlencode(params)}"
 
 
+def build_itinerary_url(
+    booking_token: str,
+    *,
+    html_lang: str = SCRAPE_LANGUAGE,
+    currency: str = SCRAPE_CURRENCY,
+) -> str:
+    token = booking_token.strip()
+    if not token:
+        raise ValueError("booking_token must not be blank")
+    return (
+        f"{SEARCH_URL}?"
+        + urlencode({"hl": html_lang, "curr": currency, "booking_token": token})
+    )
+
+
 def _text_or_none(node) -> Optional[str]:
     if node is None:
         return None
