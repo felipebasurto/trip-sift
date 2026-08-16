@@ -29,7 +29,7 @@ from viajante.flights import (
     FlightSort,
     parse_airline_codes,
     parse_depart_window,
-    parse_route_specs,
+    parse_flight_plan,
     search_flights,
     write_report_atomic,
 )
@@ -46,8 +46,10 @@ from viajante.models import (
     HotelQueryFailure,
     HotelQuerySuccess,
     LodgingKind,
+    MultiCity,
     QueryFailure,
     QuerySuccess,
+    RoundTrip,
 )
 
 FLIGHTS_EXAMPLES = """\
@@ -115,17 +117,26 @@ def _parse_and_validate(args: argparse.Namespace) -> Tuple[FlightQuery, ...]:
     parse_airline_codes(args.airlines)
     parse_airline_codes(args.exclude_airlines)
     parse_depart_window(args.depart_window)
-    queries = parse_route_specs(
+    plan = parse_flight_plan(
         args.routes,
+        trip=args.trip,
         max_stops=args.max_stops,
         adults=args.adults,
         cabin=args.cabin,
     )
     today = date.today()
-    for query in queries:
-        if query.departure_date < today:
-            raise ValueError(f"departure date is in the past: {query.departure_date.isoformat()}")
-    return queries
+    for departure in _plan_departure_dates(plan):
+        if departure < today:
+            raise ValueError(f"departure date is in the past: {departure.isoformat()}")
+    if isinstance(plan, (RoundTrip, MultiCity)):
+        raise ValueError(f"--trip {args.trip} is not implemented yet")
+    return plan
+
+
+def _plan_departure_dates(plan: object) -> Tuple[date, ...]:
+    if isinstance(plan, (RoundTrip, MultiCity)):
+        return tuple(leg.departure_date for leg in plan.legs)
+    return tuple(query.departure_date for query in plan)  # type: ignore[union-attr]
 
 
 def _format_stops(stops_count: Optional[int]) -> str:
@@ -704,6 +715,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=1,
         choices=[0, 1],
         help="Maximum stops (default 1)",
+    )
+    flights.add_argument(
+        "--trip",
+        default="one-way",
+        choices=["one-way", "rt", "multi"],
+        help="Trip kind (default one-way). rt and multi exit until native package search lands.",
     )
     flights.add_argument(
         "--adults",

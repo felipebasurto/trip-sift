@@ -13,7 +13,9 @@ from viajante.flights import (
     _run_search,
     classify_failure,
     is_low_cost,
+    parse_flight_plan,
     parse_route_specs,
+    plan_unit_count,
     resolve_fetch_mode,
     search_flights,
     sweep_needs_fallback,
@@ -28,8 +30,10 @@ from viajante.google_flights import (
 from viajante.models import (
     FlightOffer,
     FlightQuery,
+    MultiCity,
     QueryFailure,
     QuerySuccess,
+    RoundTrip,
     SearchErrorCode,
     SearchReport,
 )
@@ -410,6 +414,65 @@ class FlightsOrchestrationTests(unittest.TestCase):
     def test_parse_rejects_return_on_or_before_outbound(self) -> None:
         with self.assertRaises(ValueError):
             parse_route_specs(["MAD-OPO:2026-10-12:2026-10-09"], max_stops=1)
+
+    def test_parse_flight_plan_one_way_keeps_sugar(self) -> None:
+        plan = parse_flight_plan(
+            ["MAD-OPO:2026-10-09:2026-10-12"],
+            trip="one-way",
+            max_stops=1,
+        )
+        self.assertIsInstance(plan, tuple)
+        self.assertEqual(plan_unit_count(plan), 2)
+
+    def test_parse_flight_plan_rt(self) -> None:
+        plan = parse_flight_plan(
+            ["MAD-OPO:2026-10-09:2026-10-12"],
+            trip="rt",
+            max_stops=1,
+            adults=2,
+        )
+        self.assertIsInstance(plan, RoundTrip)
+        assert isinstance(plan, RoundTrip)
+        self.assertEqual(plan.origin, "MAD")
+        self.assertEqual(plan.destination, "OPO")
+        self.assertEqual(plan.adults, 2)
+        self.assertEqual(plan_unit_count(plan), 1)
+        with self.assertRaises(ValueError):
+            parse_flight_plan(["MAD-BCN:2026-09-01"], trip="rt", max_stops=1)
+        with self.assertRaises(ValueError):
+            parse_flight_plan(
+                ["MAD-OPO:2026-10-09:2026-10-12", "LIS-MAD:2026-10-15"],
+                trip="rt",
+                max_stops=1,
+            )
+        with self.assertRaises(ValueError):
+            parse_flight_plan(["MAD-BCN:2026-09-01,2026-09-02"], trip="rt", max_stops=1)
+
+    def test_parse_flight_plan_multi(self) -> None:
+        plan = parse_flight_plan(
+            ["MAD-BCN:2026-09-01", "BCN-FCO:2026-09-04"],
+            trip="multi",
+            max_stops=0,
+        )
+        self.assertIsInstance(plan, MultiCity)
+        assert isinstance(plan, MultiCity)
+        self.assertEqual(len(plan.legs), 2)
+        self.assertEqual(plan.legs[1].origin, "BCN")
+        self.assertEqual(plan_unit_count(plan), 1)
+        with self.assertRaises(ValueError):
+            parse_flight_plan(["MAD-BCN:2026-09-01"], trip="multi", max_stops=1)
+        with self.assertRaises(ValueError):
+            parse_flight_plan(
+                ["MAD-OPO:2026-10-09:2026-10-12", "OPO-LIS:2026-10-15"],
+                trip="multi",
+                max_stops=1,
+            )
+        with self.assertRaises(ValueError):
+            parse_flight_plan(
+                ["MAD-BCN:2026-09-01,2026-09-02", "BCN-FCO:2026-09-04"],
+                trip="multi",
+                max_stops=1,
+            )
 
     def test_search_closes_source(self) -> None:
         query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)

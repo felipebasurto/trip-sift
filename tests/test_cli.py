@@ -4,7 +4,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -375,6 +375,29 @@ class ReportRenderingTests(unittest.TestCase):
                 main(["flights", ROUTE])
         self.assertEqual(search.call_args.kwargs["fetch"], "auto")
 
+    def test_trip_rt_and_multi_exit_before_search(self) -> None:
+        cases = (
+            ["flights", "--trip", "rt", "MAD-BCN:2026-09-01"],
+            ["flights", "--trip", "multi", "MAD-BCN:2026-09-01"],
+            ["flights", "--trip", "rt", "MAD-OPO:2026-10-09:2026-10-12"],
+        )
+        for argv in cases:
+            with self.subTest(argv=argv):
+                stderr = io.StringIO()
+                with patch("viajante.cli.search_flights") as search:
+                    with redirect_stderr(stderr):
+                        code = main(argv)
+                self.assertEqual(code, 1)
+                self.assertTrue(stderr.getvalue().startswith("error:"))
+                search.assert_not_called()
+
+    def test_trip_one_way_keeps_rt_sugar(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                code = main(["flights", "--trip", "one-way", "MAD-OPO:2026-10-09:2026-10-12"])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(search.call_args.args[0]), 2)
+
     def test_rt_sugar_builds_return_leg(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()) as search:
             with patch("viajante.cli._print_report"):
@@ -435,6 +458,7 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("Examples:", help_text)
         self.assertIn("viajante flights MAD-BCN", help_text)
         self.assertIn("MAD-OPO:2026-10-09:2026-10-12", help_text)
+        self.assertIn("--trip", help_text)
         self.assertIn("--sort", help_text)
         self.assertIn("--fetch", help_text)
         self.assertIn("--fetch sweep", help_text)

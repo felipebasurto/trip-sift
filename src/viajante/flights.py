@@ -21,11 +21,14 @@ from viajante.google_flights import (
 from viajante.models import (
     FetchBackend,
     FlightCabin,
+    FlightLeg,
     FlightOffer,
     FlightQuery,
+    MultiCity,
     QueryFailure,
     QueryResult,
     QuerySuccess,
+    RoundTrip,
     SearchError,
     SearchErrorCode,
     SearchReport,
@@ -80,9 +83,14 @@ REJECTED_MESSAGE = "Google Flights rejected this route or date (unknown airport 
 
 FlightSort = Literal["ranked", "fare", "duration"]
 FetchMode = Literal["auto", "sweep", "detail"]
+TripKind = Literal["one-way", "rt", "multi"]
+FlightPlan = Tuple[FlightQuery, ...] | RoundTrip | MultiCity
 SWEEP_BATCH_THRESHOLD = 3
 ROUTE_GRAMMAR = "ORIGIN-DESTINATION:DATE[,DATE...] or ORIGIN-DESTINATION:OUT:BACK"
+RT_GRAMMAR = "ORIGIN-DESTINATION:OUT:BACK"
+MULTI_GRAMMAR = "ORIGIN-DESTINATION:DATE"
 _RT_DATES = re.compile(r"^(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$")
+_ONE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def resolve_fetch_mode(fetch: FetchMode, query_count: int) -> Literal["sweep", "detail"]:
@@ -225,6 +233,98 @@ def parse_route_specs(
     if not queries:
         raise ValueError("at least one route is required")
     return tuple(queries)
+
+
+def plan_unit_count(plan: FlightPlan) -> int:
+    if isinstance(plan, (RoundTrip, MultiCity)):
+        return 1
+    return len(plan)
+
+
+def parse_flight_plan(
+    specs: Sequence[str],
+    *,
+    trip: TripKind = "one-way",
+    max_stops: int,
+    adults: int = 1,
+    cabin: FlightCabin = "economy",
+) -> FlightPlan:
+    if trip == "one-way":
+        return parse_route_specs(specs, max_stops=max_stops, adults=adults, cabin=cabin)
+    if trip == "rt":
+        return _parse_round_trip_plan(specs, max_stops=max_stops, adults=adults, cabin=cabin)
+    if trip == "multi":
+        return _parse_multi_city_plan(specs, max_stops=max_stops, adults=adults, cabin=cabin)
+    raise ValueError("trip must be 'one-way', 'rt', or 'multi'")
+
+
+def _split_route(spec: str, *, grammar: str) -> tuple[str, str, str]:
+    try:
+        pair, dates_part = spec.split(":", 1)
+        origin, destination = pair.split("-", 1)
+    except ValueError as exc:
+        raise ValueError(f"invalid route: {spec!r}. Expected {grammar}") from exc
+    if not origin or not destination or not dates_part.strip():
+        raise ValueError(f"invalid route: {spec!r}. Expected {grammar}")
+    return origin, destination, dates_part.strip()
+
+
+def _parse_round_trip_plan(
+    specs: Sequence[str],
+    *,
+    max_stops: int,
+    adults: int,
+    cabin: FlightCabin,
+) -> RoundTrip:
+    if len(specs) != 1:
+        raise ValueError(f"--trip rt expects exactly one {RT_GRAMMAR}")
+    spec = specs[0]
+    if "," in spec:
+        raise ValueError("--trip rt does not accept comma-separated dates")
+    origin, destination, dates_part = _split_route(spec, grammar=RT_GRAMMAR)
+    rt_match = _RT_DATES.fullmatch(dates_part)
+    if rt_match is None:
+        raise ValueError(f"--trip rt expects {RT_GRAMMAR}")
+    outbound = date.fromisoformat(rt_match.group(1))
+    inbound = date.fromisoformat(rt_match.group(2))
+    return RoundTrip(
+        origin,
+        destination,
+        outbound,
+        inbound,
+        max_stops=max_stops,
+        adults=adults,
+        cabin=cabin,
+    )
+
+
+def _parse_multi_city_plan(
+    specs: Sequence[str],
+    *,
+    max_stops: int,
+    adults: int,
+    cabin: FlightCabin,
+) -> MultiCity:
+    if not 2 <= len(specs) <= 6:
+        raise ValueError(f"--trip multi expects 2 to 6 {MULTI_GRAMMAR} routes")
+    legs: list[FlightLeg] = []
+    for spec in specs:
+        if "," in spec:
+            raise ValueError("--trip multi does not accept comma-separated dates")
+        origin, destination, dates_part = _split_route(spec, grammar=MULTI_GRAMMAR)
+        if _RT_DATES.fullmatch(dates_part):
+            raise ValueError("--trip multi does not accept OUT:BACK")
+        if _ONE_DATE.fullmatch(dates_part) is None:
+            raise ValueError(f"invalid route: {spec!r}. Expected {MULTI_GRAMMAR}")
+        legs.append(
+            FlightLeg(
+                origin,
+                destination,
+                date.fromisoformat(dates_part),
+                max_stops=max_stops,
+            )
+        )
+    return MultiCity(tuple(legs), adults=adults, cabin=cabin)
 
 
 def _normalize_airline(airline_text: Optional[str]) -> str:
