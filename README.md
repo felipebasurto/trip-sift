@@ -7,7 +7,7 @@
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-52636B">
 </p>
 
-Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. Flights have two fetch modes: **sweep** is a fast HTTP shortlist (owned shopping RPC, Chrome TLS session, HTML fallback), **detail** is the Playwright scrape for max evidence. Hotels default to a local Chromium on Booking.com; `--source google` is a no-Chromium shortlist. Offers keep the scraped text next to every parsed number. Query encoding and card parsing are owned by viajante. It is built for scripts and agents that need structured prices, not for browsing.
+Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. Flights have two fetch modes: **sweep** is a fast HTTP shortlist (owned shopping RPC, Chrome TLS session, HTML fallback), **detail** is the Playwright scrape for max evidence. Hotels still use a local Chromium on Booking.com. Offers keep the scraped text next to every parsed number. Query encoding and card parsing are owned by viajante. It is built for scripts and agents that need structured prices, not for browsing.
 
 The name is Spanish for the travelling salesman: shortlist routes, don't brute-force every combination.
 
@@ -22,7 +22,7 @@ uv sync
 uv run playwright install chromium
 ```
 
-After that, run the CLI with `uv run viajante`. The lockfile (`uv.lock`) pins the exact dependency graph used in CI. A plain `pip install -e .` still works if you prefer pip, but then you must install Chromium yourself and you lose the locked transitive versions. Agents that want the stdio MCP server can add the extra: `uv sync --extra mcp`, then `uv run viajante-mcp`.
+After that, run the CLI with `uv run viajante`. The lockfile (`uv.lock`) pins the exact dependency graph used in CI. A plain `pip install -e .` still works if you prefer pip, but then you must install Chromium yourself and you lose the locked transitive versions.
 
 ## Search flights
 
@@ -37,7 +37,7 @@ uv run viajante flights MAD-BCN:2026-09-01 --fetch sweep
       131 €  3 hr 55 min  1 stop  14:05 -> 18:00     Air Europa
 ```
 
-One adult, one-way, economy. Up to eight offers per query, ordered by ranked total (fare plus baggage buffer). Vueling is cheaper on fare, but the buffer puts it behind Iberia at 109 € ranked. Pass `--sort fare` to order by cabin fare, `--sort duration` to order by elapsed time, or `--baggage-buffer 0` to rank on fare alone. `--airlines IB,I2`, `--exclude-airlines FR,RK`, `--depart-window 7-12`, `--max-duration 4`, and `--min-layover 1` are local post-filters applied after parse and before `--top`. `MAD-OPO:2026-10-09:2026-10-12` expands to outbound plus return as two one-way queries. `--trip rt ORIGIN-DEST:OUT:BACK` POSTs one native package instead. The sugar without `--trip` stays two one-ways. `--fetch sweep` is the fast HTTP shortlist: one Chrome TLS session, owned shopping RPC, HTML card parse only if that misses (no Chromium). `--fetch detail` is the full Playwright scrape. `--fetch auto` (default) uses sweep for 3+ queries and detail for 1–2; if sweep comes back empty, blocked, or markup-drifted, viajante falls back to detail once. Nothing is written to disk unless you ask for it.
+One adult, one-way, economy. Up to eight offers per query, ordered by ranked total (fare plus baggage buffer). Vueling is cheaper on fare, but the buffer puts it behind Iberia at 109 € ranked. Pass `--sort fare` to order by cabin fare, `--sort duration` to order by elapsed time, or `--baggage-buffer 0` to rank on fare alone. `--airlines IB,I2`, `--exclude-airlines FR,RK`, `--depart-window 7-12`, `--max-duration 4`, and `--min-layover 1` are local post-filters applied after parse and before `--top`. `MAD-OPO:2026-10-09:2026-10-12` expands to outbound plus return as two one-way queries. `--fetch sweep` is the fast HTTP shortlist: one Chrome TLS session, owned shopping RPC, HTML card parse only if that misses (no Chromium). `--fetch detail` is the full Playwright scrape. `--fetch auto` (default) uses sweep for 3+ queries and detail for 1–2; if sweep comes back empty, blocked, or markup-drifted, viajante falls back to detail once. Nothing is written to disk unless you ask for it.
 
 ## Cheapest days
 
@@ -97,7 +97,7 @@ uv run viajante hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
   Raw cards: 40; eligible: 12; shown: 2
 ```
 
-Prices are totals for the whole stay, not per night. Free cancellation is required by default; use `--allow-non-refundable` only when you explicitly want other stays. `--compare-cancellation` runs two sequential Booking searches (with the free-cancellation chip, then without) and prints a joined price table; do not combine it with `--allow-non-refundable` or `--source google`. `--source google` POSTs the owned hotel RPC on a Chrome TLS session (locale `en`, 5-star ratings, no Chromium). `--min-rating` above 5 is rejected on that source. Default `--source booking` stays the Playwright path.
+Prices are totals for the whole stay, not per night. Free cancellation is required by default; use `--allow-non-refundable` only when you explicitly want other stays. `--compare-cancellation` runs two sequential searches (with the free-cancellation chip, then without) and prints a joined price table; do not combine it with `--allow-non-refundable`.
 
 The CLI does not scrape Kayak, Lastminute, or official hotel sites. For a second opinion on 1–3 finalists, an agent can use the user's browser to Google the property and list whatever sources show up (official site, aggregators, others) without ranking them; those quotes stay outside `--save` JSON.
 
@@ -128,7 +128,7 @@ Each `flights` date is searched sequentially and printed as its own block. Progr
 
 ## CLI reference
 
-Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IATA codes and `YYYY-MM-DD` dates, or `ORIGIN-DESTINATION:OUT:BACK` for outbound plus return as two one-way searches. `--trip rt` on that same token is one package fare. The sugar without `--trip` stays two one-ways. Codes are case-insensitive. You can still pass a return leg as a second route.
+Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IATA codes and `YYYY-MM-DD` dates, or `ORIGIN-DESTINATION:OUT:BACK` for outbound plus return as two one-way searches. Codes are case-insensitive. You can still pass a return leg as a second route.
 
 | `flights` flag | Default | Behavior |
 |---|---|---|
@@ -163,13 +163,12 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 
 | `hotels` flag | Default | Behavior |
 |---|---|---|
-| `--source` | `booking` | `booking` is Playwright. `google` is the HTTP shortlist. No hotel `--fetch`. |
 | `--adults` / `--rooms` | `2` / `1` | Occupancy for the stay. |
 | `--top` | `8` | Stays shown after filtering and ranking. |
-| `--min-rating` | off | Local score filter. Booking is 0-10. `--source google` is 0-5. |
+| `--min-rating` | off | Minimum Booking review score, 0 to 10. |
 | `--entire-home` | off | Require entire homes. Cards with unknown property type may remain. |
 | `--allow-non-refundable` | off | Include stays without free cancellation. |
-| `--compare-cancellation` | off | Two sequential Booking searches and a joined price table. Not with `--source google`. |
+| `--compare-cancellation` | off | Two sequential searches (free cancellation on, then off) and a joined price table. |
 | `--save FILE` | off | Write the JSON report atomically. |
 
 | Exit code | Meaning |
@@ -228,7 +227,7 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 }
 ```
 
-A failed query replaces `raw_count`, `eligible_count`, and `offers` with `"error": {"code": ..., "message": ...}`. Codes an agent can switch on: `no_results`, `rejected`, `blocked`, `markup_drift`, `fetch_failed`, `browser_unavailable`. Hotel reports follow the same envelope, with `provider` (`booking.com` or `google-hotels`), `price_basis: "total_stay"`, and an `applied` block recording the filters that were actually sent. `flight_numbers` and `booking_token` are present when the compact shopping body has them; otherwise they are `null`. No booking flow. Do not invent CO2.
+A failed query replaces `raw_count`, `eligible_count`, and `offers` with `"error": {"code": ..., "message": ...}`. Codes an agent can switch on: `no_results`, `rejected`, `blocked`, `markup_drift`, `fetch_failed`, `browser_unavailable`. Hotel reports follow the same envelope, with `provider`, `price_basis: "total_stay"`, and an `applied` block recording the Booking filters that were actually used. `flight_numbers` and `booking_token` are present when the compact shopping body has them; otherwise they are `null`. No booking flow. Do not invent CO2.
 
 ## Python API
 

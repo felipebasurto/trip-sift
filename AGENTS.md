@@ -7,22 +7,18 @@
 - Google CSS, consent, empty vs markup, sweep HTTP client: `src/viajante/google_flights.py`
 - Routes, LCC buffer, or flight ranking: `src/viajante/flights.py`
 - Booking URL, chips, or DOM cards: `src/viajante/booking.py`
-- Google Hotels AtySUc encode/parse: `src/viajante/google_hotels_rpc.py`
-- Google Hotels sweep source: `src/viajante/google_hotels.py`
 - Hotel evidence filters or ranking: `src/viajante/hotels.py`
 - Delays or retry classification: `src/viajante/orchestration.py`
 - Chromium session: `src/viajante/browser.py`
 - `--save` or the state directory: `src/viajante/storage.py`
 - Flags or printed tables: `src/viajante/cli.py`
-- MCP handlers (no SDK import): `src/viajante/mcp_handlers.py`
-- Stdio MCP entry: `src/viajante/mcp_server.py`
 - Domain types or JSON keys: `src/viajante/models.py`
 - Raw card text to numbers/enums: `src/viajante/parsers.py`
 - Offline IATA lookup: `src/viajante/airports.py`
 - Cheapest-per-day calendar: `src/viajante/dates.py`
 - Explore destinations from an origin: `src/viajante/explore.py`
 
-`google_flights.py` owns URL building, consent, card parsing, typed provider failures, the sweep HTTP client, and `GoogleFlightsSource`. `google_flights_rpc.py` owns the compact shopping request and `wrb.fr` parse. `google_hotels_rpc.py` owns the AtySUc request and stay-total parse. `google_hotels.py` owns `GoogleHotelsSource`. `booking.py` owns Booking.com URL/chips, consent, card extract, and `BookingHotelsSource`. Session lifecycle lives in `browser.py`. `flights.py` and `hotels.py` are the search loops: pure and offline-testable outside the browser source.
+`google_flights.py` owns URL building, consent, card parsing, typed provider failures, the sweep HTTP client, and `GoogleFlightsSource`. `google_flights_rpc.py` owns the compact shopping request and `wrb.fr` parse. `booking.py` owns Booking.com URL/chips, consent, card extract, and `BookingHotelsSource`. Session lifecycle lives in `browser.py`. `flights.py` and `hotels.py` are the search loops: pure and offline-testable outside the browser source.
 
 ## Invariants
 
@@ -32,23 +28,23 @@
 - Detail delays: 4.5s + up to 1.5s jitter between queries; 3 attempts with 8s exponential backoff + jitter; browser reset after each failed attempt.
 - No flags to shorten detail delays or parallelize requests. Progress output is allowed and goes to stderr.
 - Retry only what can succeed on a second try. `no_results`, `rejected`, `blocked`, `markup_drift`, and `browser_unavailable` fail immediately (no second attempt). Booking card-wait timeouts (`BookingResultsTimeout`, still `fetch_failed`) also fail immediately. Do not hammer Booking after a challenge page. Sweep empty or `blocked` may still fall back to detail once; `rejected` and `markup_drift` do not.
-- Every offer keeps raw text beside parsed fields (`price`/`price_eur`, `duration`/`duration_hours`, `stops`/`stops_count`). Sweep and detail clocks are 24-hour `HH:MM`. 1-stop cards may also carry `layover_city` / `layover_hours`. When `booking_token` is present the CLI prints a Google Flights URL. URL emission only. No passenger fields. No payment. No POST to a booking endpoint.
+- Every offer keeps raw text beside parsed fields (`price`/`price_eur`, `duration`/`duration_hours`, `stops`/`stops_count`). Sweep and detail clocks are 24-hour `HH:MM`. 1-stop cards may also carry `layover_city` / `layover_hours`.
 - JSON output only with `--save`. Browser state lives outside the checkout (`VIAJANTE_STATE_DIR` or XDG state dir), and is always written to a temp file and renamed. Booking fetch failures dump `booking-last-failure.html` / `.txt` there for diagnosis; do not commit those files.
 
 ### Flights
 
 - Sweep is the fast shortlist (owned shopping RPC, Chrome TLS session, HTML fallback, no Chromium). Detail is max evidence (Playwright, full card set, current delays). Keep EUR, `hl=en` for flights, ranked/fare sort, and the baggage buffer in both modes. Card parsing is owned by viajante and keeps raw stop/price labels. This does not apply to hotels, which use `lang=es` against our own parser.
 - The flight scrape locale is `hl=en` with `locale="en-US"` for stable rendered evidence and the existing JSON `locale: "en"` contract. Currency comes from `curr=EUR`, independently of `hl`.
-- `max_stops` is 0, 1, or 2 per query; filtering follows each query's value. 2 means Google's two-or-fewer. `--max-layover` / `--min-layover` (hours) filter 1-stop offers by layover on both sweep and detail; nonstops stay. `--max-layover` still reads the longest layover until a later change walks `layovers[]`. `--max-duration` drops offers whose elapsed time exceeds that many hours. `adults` and `cabin` are query fields (CLI `--adults` / `--cabin`). `ORIGIN-DEST:OUT:BACK` is sugar for two one-way queries (out then return), not a round-trip `tfs`. `--trip rt` on that token POSTs one package. The sugar without `--trip` stays two one-ways.
+- `max_stops` is 0 or 1 per query; filtering follows each query's value. `--max-layover` / `--min-layover` (hours) filter 1-stop offers by layover on both sweep and detail; nonstops stay. `--max-duration` drops offers whose elapsed time exceeds that many hours. Flights stay one-way; `adults` and `cabin` are query fields (CLI `--adults` / `--cabin`). `ORIGIN-DEST:OUT:BACK` is sugar for two one-way queries (out then return), not a round-trip `tfs`.
 - The baggage buffer is an input (`--baggage-buffer`, default 70 EUR), not a constant. A non-zero buffer implies `needs_bag_verify`. Default `--sort ranked` selects `--top` by fare+buffer; `--sort fare` uses fare; `--sort duration` uses elapsed time. `--airlines`, `--exclude-airlines`, `--depart-window`, `--max-duration`, and `--min-layover` are local post-filters after parse, before `--top`. The ranked total must be visible when a buffer was added. Callers must verify baggage on Google Flights before booking.
 - `viajante dates ORIGIN-DEST --from DATE --to DATE` is the cheapest-per-day table (date-grid RPC, 31-day cap). A compact calendar miss falls back to one shopping sweep per day on the same TLS session. `viajante explore ORIGIN --from DATE --days N` is the dest shortlist from the Explore catalog, then a priced `--top`. `viajante airports QUERY` is offline IATA lookup. `FlightQuery` rejects unknown codes.
 - The low-cost carrier list is partial. Absence from it is not evidence that a fare includes a bag.
 
 ### Hotels
 
-- Hotel prices are total-stay prices. Keep requested filters, applied chips, and observed card evidence distinct. Booking search URLs include `order=price`. `--source google` is the HTTP shortlist (AtySUc, Chrome TLS, no Chromium, inter-query delay 0). Default `--source booking` stays the Playwright evidence path. There is no hotel `--fetch`. Google list prices come from the stay-total slot, not the nightly figure.
-- Hotel searches require free cancellation by default. Only an explicit caller or CLI opt-out may include non-refundable stays. If `oos=1` or `free_cancellation=1` is applied and the card does not mention cancellation, print `filter applied; card silent` — do not store `free` in JSON.
-- `--compare-cancellation` runs two sequential Booking scrapes (free cancellation on, then off) and joins stays by title+address. Do not parallelize. If one query fails, print both results and skip the join. Reject `--compare-cancellation --source google` and `--min-rating` above 5 with `--source google`. Google ratings stay on the 5-star scale. Do not convert 4.5/5 into a fake 9/10.
+- Hotel prices are total-stay prices. Keep requested filters, applied Booking chips, and observed card evidence distinct. Booking search URLs include `order=price`.
+- Hotel searches require free cancellation by default. Only an explicit caller or CLI opt-out may include non-refundable stays. If `oos=1` is applied and the card does not mention cancellation, print `filter applied; card silent` — do not store `free` in JSON.
+- `--compare-cancellation` runs two sequential Booking scrapes (free cancellation on, then off) and joins stays by title+address. Do not parallelize. If one query fails, print both results and skip the join.
 - `lodging_kind` is observed card evidence (`entire_home` / `private_room` / `hotel` / `unknown`). If the card is silent, apartment/apartamento/casa in the title may infer `entire_home`. Do not infer `hotel` from the word hotel in the title. Do not claim cancellation, lodging kind, or unit counts when unknown.
 - Callers must verify the final total and cancellation terms on Booking.com before booking.
 - Other OTAs are not scrapers in this tree. After Booking, for 1–3 finalists, the viajante skill says to use the user's browser harness (Google the property; list official site, aggregators, and other hits as options, without preferring one). Unverified second opinion. Do not invent prices from snippets or write them into `--save` JSON.
@@ -65,9 +61,9 @@ uv run ruff check src tests
 
 `pip install -e .` still works, but `uv` is the reproducible path for this tree. Tests are offline. They must not launch Chromium or use the network. CI runs the suite on Python 3.10 through 3.14.
 
-`tests/test_google_flights.py` pins owned TFS encoding, the compact shopping fixture → `RawFlightCard` seam, and HTML fallback. Test the owned boundary (`RawFlightCard`, typed empty/markup/block failures), not upstream HTML rewriting. `tests/test_booking.py` is the Booking page seam (`build_applied_filters`, cards, empty vs markup). `tests/test_google_hotels.py` is the AtySUc encode and stay-total parse. `tests/test_hotels.py` is eligibility, ranking, and the search loop.
+`tests/test_google_flights.py` pins owned TFS encoding, the compact shopping fixture → `RawFlightCard` seam, and HTML fallback. Test the owned boundary (`RawFlightCard`, typed empty/markup/block failures), not upstream HTML rewriting. `tests/test_booking.py` is the Booking page seam (`build_applied_filters`, cards, empty vs markup). `tests/test_hotels.py` is eligibility, ranking, and the search loop.
 
-`tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output. `tests/test_dates.py`, `tests/test_explore.py`, and `tests/test_airports.py` cover the calendar window, explore catalog, and offline IATA lookup. `tests/test_mcp.py` covers the MCP handlers on the default suite (no SDK).
+`tests/test_json_contract.py` and `tests/test_hotel_json_contract.py` pin the flight and hotel JSON shapes. A renamed or dropped key is a breaking change for anything reading `--save` output. `tests/test_dates.py`, `tests/test_explore.py`, and `tests/test_airports.py` cover the calendar window, explore catalog, and offline IATA lookup.
 
 ## Trip-planning search strategy
 
