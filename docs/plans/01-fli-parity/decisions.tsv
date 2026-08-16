@@ -1,0 +1,9 @@
+ts	phase	decision	why	evidence	result
+2026-08-16T15:50:00Z	frame	plan the program, do not implement	change spans types, RPC, CLI, hotels, MCP	playbooks/multi-phase-plan.md	10 slices launched
+2026-08-16T15:52:00Z	scope	no Duffel, LetsFG, watches, OTA scrapers, hacks, TypeScript, community phase	those break no-keys, honest totals, or the private-data boundary	/tmp/viajante-plan/worker-10.md	hard NOs locked
+2026-08-16T15:54:00Z	encode	extend owned tfs and shopping JSON, do not vendor fli	fli booking tfs is a different token, extra deps buy nothing	/tmp/viajante-plan/worker-02.md	PASS
+2026-08-16T15:54:00Z	filters	copy no fli flags	EUR/hl=en are constructions, alliance is a worse --airlines	/tmp/viajante-plan/worker-08.md	no filter PR
+2026-08-16T15:54:00Z	hotels	skip Booking HTTP sweep	GET searchresults.html returned AWS WAF challenge 202	/tmp/viajante-plan/worker-06.md	Booking stays Playwright
+2026-08-16T15:57:00Z	cli	keep route sugar, add --trip	fli positionals would break the skill and help tests	/tmp/viajante-plan/worker-04.md	PASS
+2026-08-16T15:59:00Z	hotels	Google Hotels behind --source google, default booking	transport is scrapeable, evidence is not	/tmp/viajante-plan/worker-05.md	probe gates price_basis
+2026-08-16T16:00:00Z	reconcile	one Trip union, encoders take Trip, legs are schema 1 additive	two itinerary types and a v2 bump for legs would lie or duplicate	docs/plans/01-fli-parity/overview.md	plan written
