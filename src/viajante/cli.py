@@ -94,6 +94,7 @@ Examples:
   viajante hotels Prague 2026-12-04 2026-12-07 --entire-home --min-rating 8.5
   viajante hotels Prague 2026-12-04 2026-12-07 --compare-cancellation
   viajante hotels Prague 2026-12-04 2026-12-07 --save results/hotels.json
+  viajante hotels Prague 2026-12-04 2026-12-07 --source google --top 3
 """
 
 
@@ -215,6 +216,11 @@ def _build_hotel_queries(args: argparse.Namespace) -> Tuple[HotelQuery, ...]:
     check_out = _parse_iso_date(args.check_out, "check-out")
     if args.compare_cancellation and args.allow_non_refundable:
         raise ValueError("--compare-cancellation cannot be combined with --allow-non-refundable")
+    source = getattr(args, "source", "booking")
+    if source == "google" and args.compare_cancellation:
+        raise ValueError("--compare-cancellation cannot be combined with --source google")
+    if source == "google" and args.min_rating is not None and args.min_rating > 5:
+        raise ValueError("--min-rating must be at most 5 with --source google")
     shared = {
         "location": args.location,
         "check_in": check_in,
@@ -316,10 +322,16 @@ def _format_hotel_filter_gloss(query: HotelQuery) -> str:
     return "; ".join(parts)
 
 
-def _print_hotel_filters(query: HotelQuery, applied: AppliedHotelFilters) -> None:
+def _print_hotel_filters(
+    query: HotelQuery,
+    applied: AppliedHotelFilters,
+    *,
+    provider: str = "booking.com",
+) -> None:
     chips = "; ".join(applied.chips) if applied.chips else "(none)"
+    label = "Booking chips" if provider == "booking.com" else "Google chips"
     print(f"  Filters: {_format_hotel_filter_gloss(query)}")
-    print(f"  Booking chips: {chips}")
+    print(f"  {label}: {chips}")
 
 
 def _format_cancellation_evidence(
@@ -332,7 +344,9 @@ def _format_cancellation_evidence(
         return "Cancellation: free"
     if evidence is CancellationEvidence.NON_REFUNDABLE:
         return "Cancellation: non-refundable"
-    if query.free_cancellation and "oos=1" in applied.chips:
+    if query.free_cancellation and (
+        "oos=1" in applied.chips or "free_cancellation=1" in applied.chips
+    ):
         return "Cancellation: filter applied; card silent"
     return "Cancellation: unknown"
 
@@ -457,7 +471,7 @@ def _print_hotel_report(report) -> None:
             f"{query.rooms} room(s)) ==="
         )
         print(header)
-        _print_hotel_filters(query, result.applied)
+        _print_hotel_filters(query, result.applied, provider=report.provider)
         if isinstance(result, HotelQuerySuccess):
             any_success = True
             if not result.offers:
@@ -475,8 +489,9 @@ def _print_hotel_report(report) -> None:
         elif isinstance(result, HotelQueryFailure):
             print(f"  ERROR: {result.error.message}")
     if any_success:
+        site = "Google Hotels" if report.provider == "google-hotels" else "Booking.com"
         print(
-            "\nVerify the final total stay price and cancellation terms on Booking.com "
+            f"\nVerify the final total stay price and cancellation terms on {site} "
             "before booking."
         )
 
@@ -532,6 +547,7 @@ def _run_hotels(args: argparse.Namespace) -> int:
         queries,
         top=args.top,
         progress=lambda line: print(line, file=sys.stderr),
+        source=getattr(args, "source", "booking"),
     )
     _print_hotel_report(report)
 
@@ -872,6 +888,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--allow-non-refundable",
         action="store_true",
         help="Include non-refundable stays (default filters to free cancellation)",
+    )
+    hotels.add_argument(
+        "--source",
+        default="booking",
+        choices=["booking", "google"],
+        help="booking is the Playwright evidence path (default). google is the HTTP shortlist.",
     )
     hotels.add_argument(
         "--compare-cancellation",

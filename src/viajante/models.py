@@ -528,6 +528,24 @@ class HotelQuery:
 
 
 @dataclass(frozen=True)
+class RawHotelCard:
+    title: str
+    address: Optional[str]
+    total_price: str
+    rating: Optional[str]
+    details: str
+    link: Optional[str]
+
+
+@dataclass(frozen=True)
+class HotelPage:
+    cards: Tuple[RawHotelCard, ...]
+
+
+HotelProvider = Literal["booking.com", "google-hotels"]
+
+
+@dataclass(frozen=True)
 class AppliedHotelFilters:
     chips: Tuple[str, ...]
     url: str
@@ -637,7 +655,7 @@ class HotelSearchReport:
     locale: str = "es"
     currency: str = "EUR"
     schema_version: int = field(init=False, default=1)
-    provider: Literal["booking.com"] = field(init=False, default="booking.com")
+    provider: HotelProvider = "booking.com"
     price_basis: Literal["total_stay"] = field(init=False, default="total_stay")
 
     def __post_init__(self) -> None:

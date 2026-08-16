@@ -24,7 +24,7 @@ uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--trip {one-way,
 uv run viajante dates ORIGIN-DEST --from YYYY-MM-DD --to YYYY-MM-DD [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--fetch {auto,sweep,detail}] [--save FILE]
 uv run viajante explore ORIGIN --from YYYY-MM-DD [--days N] [--month YYYY-MM] [--top N] [--save FILE]
 uv run viajante airports QUERY
-uv run viajante hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
+uv run viajante hotels LOCATION CHECK_IN CHECK_OUT [--source {booking,google}] [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
 ```
 
 Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one route. `MAD-OPO:2026-10-09:2026-10-12` is sugar for outbound + return as two one-way queries. `--trip rt` on that token POSTs one package. The sugar without `--trip` stays two one-ways. You can still pass a return leg as a second route.
@@ -46,6 +46,7 @@ uv run viajante flights MAD-BCN:2026-12-04 --fetch detail --top 3
 
 # One live hotel query
 uv run viajante hotels Prague 2026-12-04 2026-12-07 --top 3
+uv run viajante hotels Prague 2026-12-04 2026-12-07 --source google --top 3
 ```
 
 ## Hotels: ask once
@@ -126,9 +127,10 @@ Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hote
 ### Hotels
 
 - Free cancellation is on by default; use `--allow-non-refundable` only after explicit user consent.
-- `--compare-cancellation` runs two sequential Booking searches (with the free-cancellation chip, then without) and prints a joined price table. Do not combine it with `--allow-non-refundable`. Do not parallelize. If one of the two queries fails, skip the join.
+- `--compare-cancellation` runs two sequential Booking searches (with the free-cancellation chip, then without) and prints a joined price table. Do not combine it with `--allow-non-refundable` or `--source google`. Do not parallelize. If one of the two queries fails, skip the join.
+- `--source google` is the HTTP hotel shortlist (no Chromium). Default `--source booking` stays Booking.com. There is no hotel `--fetch`.
 - `--adults` defaults to 2. Override for solo travelers.
-- `--min-rating` is applied locally after the scrape. It is not a Booking chip.
+- `--min-rating` is applied locally after the scrape. Booking uses 0-10. `--source google` uses the 5-star scale and rejects scores above 5.
 - Treat cancellation, `lodging_kind`, and bed/bedroom/bathroom counts as observed evidence. Do not present unknown card evidence as confirmed. Do not guess “hotel” from the property title.
 - Remind the user to verify the final total and cancellation terms on Booking.com before booking.
 

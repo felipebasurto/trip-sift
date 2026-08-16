@@ -163,6 +163,21 @@ class HotelJsonContractTests(unittest.TestCase):
     def test_the_whole_report_is_json_serialisable(self) -> None:
         json.loads(json.dumps(self.data, ensure_ascii=False))
 
+    def test_google_hotels_report_is_not_labelled_booking(self) -> None:
+        report = HotelSearchReport(
+            searched_at=datetime(2026, 8, 11, 10, 32, 0, tzinfo=timezone.utc),
+            queries=(),
+            locale="en",
+            provider="google-hotels",
+        )
+        data = report.to_dict()
+        self.assertEqual(set(data), REPORT_KEYS)
+        self.assertEqual(data["provider"], "google-hotels")
+        self.assertNotEqual(data["provider"], "booking.com")
+        self.assertEqual(data["locale"], "en")
+        self.assertEqual(data["price_basis"], "total_stay")
+        self.assertEqual(data["schema_version"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
