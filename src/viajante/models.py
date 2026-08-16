@@ -7,6 +7,8 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Literal, Mapping, Optional, Tuple, Union
 
+from viajante.airports import is_known_iata
+
 FlightCabin = Literal["economy", "premium-economy", "business", "first"]
 
 
@@ -26,6 +28,10 @@ class FlightQuery:
             raise ValueError(f"invalid origin IATA code: {self.origin!r}")
         if len(destination) != 3 or not destination.isalpha():
             raise ValueError(f"invalid destination IATA code: {self.destination!r}")
+        if not is_known_iata(origin):
+            raise ValueError(f"unknown origin IATA code: {self.origin!r}")
+        if not is_known_iata(destination):
+            raise ValueError(f"unknown destination IATA code: {self.destination!r}")
         if self.max_stops not in (0, 1):
             raise ValueError("max_stops must be 0 or 1")
         if self.adults < 1:
@@ -59,6 +65,10 @@ class FlightOffer:
     stops_count: Optional[int]
     baggage_buffer_eur: int
     needs_bag_verify: bool
+    layover_city: Optional[str] = None
+    layover_hours: Optional[float] = None
+    flight_numbers: Optional[Tuple[str, ...]] = None
+    booking_token: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.price_eur <= 0:
@@ -79,14 +89,21 @@ class FlightOffer:
             "duration_hours": self.duration_hours,
             "stops": self.stops,
             "stops_count": self.stops_count,
+            "layover_city": self.layover_city,
+            "layover_hours": self.layover_hours,
+            "flight_numbers": list(self.flight_numbers) if self.flight_numbers else None,
+            "booking_token": self.booking_token,
             "baggage_buffer_eur": self.baggage_buffer_eur,
             "needs_bag_verify": self.needs_bag_verify,
         }
 
 
 class SearchErrorCode(str, Enum):
-    FETCH_FAILED = "fetch_failed"
     NO_RESULTS = "no_results"
+    REJECTED = "rejected"
+    BLOCKED = "blocked"
+    MARKUP_DRIFT = "markup_drift"
+    FETCH_FAILED = "fetch_failed"
     BROWSER_UNAVAILABLE = "browser_unavailable"
 
 
@@ -170,6 +187,122 @@ class SearchReport:
             "fetch_ms": self.fetch_ms,
             "queries": [result.to_dict() for result in self.queries],
         }
+
+
+@dataclass(frozen=True)
+class DatePriceRow:
+    departure_date: date
+    price_eur: Optional[float] = None
+    airline: Optional[str] = None
+    stops_count: Optional[int] = None
+    status: Literal["ok", "empty", "error"] = "ok"
+    error: Optional[SearchError] = None
+
+    def to_dict(self) -> Mapping[str, object]:
+        payload: dict[str, object] = {
+            "date": self.departure_date.isoformat(),
+            "price_eur": self.price_eur,
+            "airline": self.airline,
+            "stops_count": self.stops_count,
+            "status": self.status,
+        }
+        if self.error is not None:
+            payload["error"] = self.error.to_dict()
+        return payload
+
+
+@dataclass(frozen=True)
+class DateCalendarReport:
+    searched_at: datetime
+    origin: str
+    destination: str
+    start_date: date
+    end_date: date
+    days: Tuple[DatePriceRow, ...]
+    locale: str = "en"
+    currency: str = "EUR"
+    fetch_backend: Optional[str] = "calendar"
+    fetch_ms: Optional[int] = None
+    schema_version: int = field(init=False, default=1)
+
+    def __post_init__(self) -> None:
+        if self.searched_at.tzinfo is not None:
+            object.__setattr__(
+                self,
+                "searched_at",
+                self.searched_at.astimezone(timezone.utc).replace(tzinfo=None),
+            )
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "searched_at": self.searched_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "currency": self.currency,
+            "locale": self.locale,
+            "origin": self.origin,
+            "destination": self.destination,
+            "from": self.start_date.isoformat(),
+            "to": self.end_date.isoformat(),
+            "fetch_backend": self.fetch_backend,
+            "fetch_ms": self.fetch_ms,
+            "days": [row.to_dict() for row in self.days],
+        }
+
+
+@dataclass(frozen=True)
+class ExploreDestination:
+    iata: str
+    city: str
+    country: Optional[str]
+    price_eur: Optional[float] = None
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "iata": self.iata,
+            "city": self.city,
+            "country": self.country,
+            "price_eur": self.price_eur,
+        }
+
+
+@dataclass(frozen=True)
+class ExploreReport:
+    searched_at: datetime
+    origin: str
+    start_date: date
+    days: int
+    destinations: Tuple[ExploreDestination, ...]
+    locale: str = "en"
+    currency: str = "EUR"
+    fetch_backend: Optional[str] = "explore"
+    fetch_ms: Optional[int] = None
+    error: Optional[SearchError] = None
+    schema_version: int = field(init=False, default=1)
+
+    def __post_init__(self) -> None:
+        if self.searched_at.tzinfo is not None:
+            object.__setattr__(
+                self,
+                "searched_at",
+                self.searched_at.astimezone(timezone.utc).replace(tzinfo=None),
+            )
+
+    def to_dict(self) -> Mapping[str, object]:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "searched_at": self.searched_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "currency": self.currency,
+            "locale": self.locale,
+            "origin": self.origin,
+            "from": self.start_date.isoformat(),
+            "days": self.days,
+            "fetch_backend": self.fetch_backend,
+            "fetch_ms": self.fetch_ms,
+            "destinations": [row.to_dict() for row in self.destinations],
+        }
+        if self.error is not None:
+            payload["error"] = self.error.to_dict()
+        return payload
 
 
 class CancellationEvidence(str, Enum):

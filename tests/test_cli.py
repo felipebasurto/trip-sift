@@ -52,6 +52,8 @@ def _offer(
     price_eur: float = 129.0,
     baggage_buffer_eur: int = 0,
     needs_bag_verify: bool = False,
+    layover_city: Optional[str] = None,
+    layover_hours: Optional[float] = None,
 ) -> FlightOffer:
     return FlightOffer(
         airline=airline,
@@ -63,6 +65,8 @@ def _offer(
         duration_hours=duration_hours,
         stops=stops,
         stops_count=stops_count,
+        layover_city=layover_city,
+        layover_hours=layover_hours,
         baggage_buffer_eur=baggage_buffer_eur,
         needs_bag_verify=needs_bag_verify,
     )
@@ -294,6 +298,71 @@ class ReportRenderingTests(unittest.TestCase):
                 main(["flights", ROUTE, "--sort", "fare"])
         self.assertEqual(search.call_args.kwargs["sort"], "fare")
 
+    def test_max_layover_flag_reaches_the_search(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                main(["flights", ROUTE, "--max-layover", "10"])
+        self.assertEqual(search.call_args.kwargs["max_layover_hours"], 10)
+
+    def test_duration_and_min_layover_flags_reach_the_search(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                main(
+                    [
+                        "flights",
+                        ROUTE,
+                        "--max-duration",
+                        "4",
+                        "--min-layover",
+                        "1",
+                    ]
+                )
+        self.assertEqual(search.call_args.kwargs["max_duration_hours"], 4)
+        self.assertEqual(search.call_args.kwargs["min_layover_hours"], 1)
+
+    def test_layover_is_visible_on_one_stop_rows(self) -> None:
+        output = _rendered(
+            _report(
+                _offer(
+                    airline="Tap Air Portugal",
+                    departure="13:40",
+                    arrival="09:00",
+                    duration="20 hr 20 min",
+                    duration_hours=20 + 20 / 60,
+                    stops="1 stop",
+                    stops_count=1,
+                    price_eur=74.0,
+                    layover_city="Lisbon",
+                    layover_hours=18.0,
+                )
+            )
+        )
+        self.assertIn("13:40 -> 09:00", output)
+        self.assertIn("Lisbon", output)
+        self.assertIn("18h", output)
+
+    def test_filter_flags_reach_the_search(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                main(
+                    [
+                        "flights",
+                        ROUTE,
+                        "--airlines",
+                        "IB,I2",
+                        "--exclude-airlines",
+                        "FR,RK",
+                        "--depart-window",
+                        "7-12",
+                        "--sort",
+                        "duration",
+                    ]
+                )
+        self.assertEqual(search.call_args.kwargs["airlines"], ("IB", "I2"))
+        self.assertEqual(search.call_args.kwargs["exclude_airlines"], ("FR", "RK"))
+        self.assertEqual(search.call_args.kwargs["depart_window"], (7, 12))
+        self.assertEqual(search.call_args.kwargs["sort"], "duration")
+
     def test_fetch_flag_reaches_the_search(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()) as search:
             with patch("viajante.cli._print_report"):
@@ -369,6 +438,13 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("--sort", help_text)
         self.assertIn("--fetch", help_text)
         self.assertIn("--fetch sweep", help_text)
+        self.assertIn("--max-layover", help_text)
+        self.assertIn("--min-layover", help_text)
+        self.assertIn("--max-duration", help_text)
+        self.assertIn("--airlines", help_text)
+        self.assertIn("--exclude-airlines", help_text)
+        self.assertIn("--depart-window", help_text)
+        self.assertIn("duration", help_text)
 
     def test_root_help_preserves_flight_examples_and_lists_subcommands(self) -> None:
         buffer = io.StringIO()
@@ -378,6 +454,9 @@ class ReportRenderingTests(unittest.TestCase):
         help_text = buffer.getvalue()
         self.assertIn("flights", help_text)
         self.assertIn("hotels", help_text)
+        self.assertIn("dates", help_text)
+        self.assertIn("explore", help_text)
+        self.assertIn("airports", help_text)
         self.assertIn("Examples:", help_text)
         self.assertIn("viajante flights MAD-BCN", help_text)
 
@@ -434,18 +513,26 @@ class PublicApiTests(unittest.TestCase):
             "CancellationEvidence",
             "PropertyTypeEvidence",
             "search_hotels",
+            "search_dates",
+            "search_explore",
+            "lookup_airports",
         ):
             self.assertTrue(hasattr(viajante, name), msg=name)
         self.assertEqual(
             set(viajante.__all__),
             {
+                "CancellationEvidence",
+                "DateCalendarReport",
+                "ExploreReport",
                 "FlightQuery",
-                "SearchReport",
-                "search_flights",
                 "HotelQuery",
                 "HotelSearchReport",
-                "CancellationEvidence",
                 "PropertyTypeEvidence",
+                "SearchReport",
+                "lookup_airports",
+                "search_dates",
+                "search_explore",
+                "search_flights",
                 "search_hotels",
             },
         )

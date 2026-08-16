@@ -21,6 +21,7 @@ from viajante.flights import (
 from viajante.google_flights import (
     GoogleFlightsBlocked,
     GoogleFlightsMarkupError,
+    GoogleFlightsRejected,
     NoFlightsFound,
     RawFlightCard,
 )
@@ -50,6 +51,10 @@ def card(
     price: str = "99 €",
     duration: str = "1 h",
     stops: str = "Nonstop",
+    layover_city: str | None = None,
+    layover_hours: float | None = None,
+    airline_codes: tuple[str, ...] | None = None,
+    flight_numbers: tuple[str, ...] | None = None,
 ) -> RawFlightCard:
     return RawFlightCard(
         airline=airline,
@@ -58,6 +63,10 @@ def card(
         price=price,
         duration=duration,
         stops=stops,
+        layover_city=layover_city,
+        layover_hours=layover_hours,
+        airline_codes=airline_codes,
+        flight_numbers=flight_numbers,
     )
 
 
@@ -122,6 +131,11 @@ class FailureClassificationTests(unittest.TestCase):
             "Google Flights returned no flights for this route and date.",
         )
 
+    def test_rejected_shopping_query_is_rejected(self) -> None:
+        error = classify_failure(GoogleFlightsRejected("unknown airport"))
+        self.assertEqual(error.code, SearchErrorCode.REJECTED)
+        self.assertIn("rejected", error.message.casefold())
+
     def test_missing_chromium_is_reported_as_browser_unavailable(self) -> None:
         error = classify_failure(
             RuntimeError("Executable doesn't exist at /ms-playwright/chromium/headless")
@@ -129,10 +143,15 @@ class FailureClassificationTests(unittest.TestCase):
         self.assertEqual(error.code, SearchErrorCode.BROWSER_UNAVAILABLE)
         self.assertIn("playwright install chromium", error.message)
 
-    def test_markup_errors_are_fetch_failures(self) -> None:
+    def test_markup_errors_are_markup_drift(self) -> None:
         error = classify_failure(GoogleFlightsMarkupError("no results grid"))
-        self.assertEqual(error.code, SearchErrorCode.FETCH_FAILED)
+        self.assertEqual(error.code, SearchErrorCode.MARKUP_DRIFT)
         self.assertIn("no results grid", error.message)
+
+    def test_http_blocks_are_blocked(self) -> None:
+        error = classify_failure(GoogleFlightsBlocked("consent wall"))
+        self.assertEqual(error.code, SearchErrorCode.BLOCKED)
+        self.assertIn("consent wall", error.message)
 
     def test_unrecognised_failures_keep_their_original_text(self) -> None:
         error = classify_failure(TimeoutError("Timeout 60000ms exceeded"))
@@ -170,13 +189,13 @@ class NonRetriableFailureTests(unittest.TestCase):
         outcome, source, sleeps = self._run(GoogleFlightsMarkupError("selectors rotted"))
         self.assertEqual(source.fetch_calls, 1)
         self.assertEqual(sleeps, [])
-        self.assertEqual(outcome.error.code, SearchErrorCode.FETCH_FAILED)
+        self.assertEqual(outcome.error.code, SearchErrorCode.MARKUP_DRIFT)
 
     def test_http_blocks_are_not_retried(self) -> None:
         outcome, source, sleeps = self._run(GoogleFlightsBlocked("consent wall"))
         self.assertEqual(source.fetch_calls, 1)
         self.assertEqual(sleeps, [])
-        self.assertEqual(outcome.error.code, SearchErrorCode.FETCH_FAILED)
+        self.assertEqual(outcome.error.code, SearchErrorCode.BLOCKED)
 
     def test_transient_failures_are_still_retried(self) -> None:
         outcome, source, sleeps = self._run(RuntimeError("network"))
@@ -468,6 +487,94 @@ class FlightsOrchestrationTests(unittest.TestCase):
         self.assertTrue(sweep.closed)
         self.assertTrue(detail.closed)
 
+    def test_sweep_fallback_does_not_rerun_successful_legs(self) -> None:
+        ok = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
+        empty = FlightQuery("MAD", "ICN", date(2026, 9, 22), max_stops=1)
+        sweep = FakeSource(
+            {
+                ("MAD", "BCN", "2026-09-01", 1): (card(airline="Vueling"),),
+                ("MAD", "ICN", "2026-09-22", 1): NoFlightsFound(),
+            }
+        )
+        detail = FakeSource({("MAD", "ICN", "2026-09-22", 1): (card(airline="Korean Air"),)})
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=sweep):
+            with patch("viajante.flights.GoogleFlightsSource", return_value=detail) as detail_ctor:
+                report = search_flights((ok, empty), top=1, fetch="sweep")
+        self.assertEqual(report.fetch_backend, "sweep_then_detail")
+        self.assertEqual(report.queries[0].offers[0].airline, "Vueling")
+        self.assertEqual(report.queries[1].offers[0].airline, "Korean Air")
+        self.assertEqual(detail.fetch_calls, 1)
+        detail_ctor.assert_called_once()
+
+    def test_rejected_sweep_query_does_not_open_chromium(self) -> None:
+        query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
+        sweep = FakeSource(
+            {("MAD", "BCN", "2026-09-01", 1): GoogleFlightsRejected("unknown airport")}
+        )
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=sweep):
+            with patch("viajante.flights.GoogleFlightsSource") as detail:
+                report = search_flights((query,), top=1, fetch="sweep")
+        detail.assert_not_called()
+        self.assertEqual(report.fetch_backend, "sweep")
+        self.assertIsInstance(report.queries[0], QueryFailure)
+        self.assertEqual(report.queries[0].error.code, SearchErrorCode.REJECTED)
+
+    def test_markup_miss_after_sweep_does_not_open_chromium(self) -> None:
+        query = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1)
+        sweep = FakeSource(
+            {("MAD", "BCN", "2026-09-01", 1): GoogleFlightsMarkupError("no results grid")}
+        )
+        with patch("viajante.flights.GoogleFlightsHttpSource", return_value=sweep):
+            with patch("viajante.flights.GoogleFlightsSource") as detail:
+                report = search_flights((query,), top=1, fetch="sweep")
+        detail.assert_not_called()
+        self.assertEqual(report.fetch_backend, "sweep")
+        self.assertEqual(report.queries[0].error.code, SearchErrorCode.MARKUP_DRIFT)
+
+    def test_twelve_and_twenty_four_hour_clocks_dedupe(self) -> None:
+        ampm = _normalize_offer(
+            card(
+                airline="Iberia",
+                departure="1:40 PM",
+                arrival="9:00 AM",
+                price="74 €",
+                duration="20 hr 20 min",
+                stops="1 stop",
+            ),
+            max_stops=1,
+        )
+        hhmm = _normalize_offer(
+            card(
+                airline="Iberia",
+                departure="13:40",
+                arrival="09:00",
+                price="74 €",
+                duration="20 hr 20 min",
+                stops="1 stop",
+            ),
+            max_stops=1,
+        )
+        assert ampm is not None and hhmm is not None
+        ranked = _rank_offers((ampm, hhmm), top=5)
+        self.assertEqual(len(ranked), 1)
+        self.assertEqual(ranked[0].departure, "13:40")
+        self.assertEqual(ranked[0].arrival, "09:00")
+
+    def test_max_layover_drops_overnight_connections(self) -> None:
+        overnight = card(
+            airline="Tap Air Portugal",
+            departure="13:40",
+            arrival="09:00",
+            price="74 €",
+            duration="20 hr 20 min",
+            stops="1 stop",
+            layover_city="Lisbon",
+            layover_hours=18.0,
+        )
+        self.assertIsNone(_normalize_offer(overnight, max_stops=1, max_layover_hours=10))
+        short = card(airline="Air Europa", departure="10:35", arrival="10:50", price="58 €")
+        self.assertIsNotNone(_normalize_offer(short, max_stops=1, max_layover_hours=10))
+
 
 class FetchModeTests(unittest.TestCase):
     def test_auto_is_detail_for_one_or_two_queries(self) -> None:
@@ -499,6 +606,83 @@ class FetchModeTests(unittest.TestCase):
         )
         self.assertFalse(sweep_needs_fallback(ok))
         self.assertTrue(sweep_needs_fallback(empty))
+
+
+class OfferFilterTests(unittest.TestCase):
+    def test_include_airlines_keeps_matching_codes(self) -> None:
+        iberia = card(airline="Iberia", airline_codes=("IB",), price="100 €")
+        ryanair = card(airline="Ryanair", airline_codes=("FR",), price="40 €", departure="09:00")
+        self.assertIsNotNone(_normalize_offer(iberia, 1, airlines=("IB", "I2")))
+        self.assertIsNone(_normalize_offer(ryanair, 1, airlines=("IB", "I2")))
+
+    def test_exclude_airlines_drops_matching_names(self) -> None:
+        air_europa = card(airline="Air Europa", airline_codes=("UX",), price="90 €")
+        iberia = card(airline="Iberia", airline_codes=("IB",), price="100 €")
+        self.assertIsNone(_normalize_offer(air_europa, 1, exclude_airlines=("UX",)))
+        self.assertIsNotNone(_normalize_offer(iberia, 1, exclude_airlines=("UX",)))
+
+    def test_depart_window_keeps_local_hours(self) -> None:
+        early = card(departure="06:45", price="80 €")
+        mid = card(departure="09:10", price="90 €")
+        late = card(departure="13:00", price="70 €")
+        self.assertIsNone(_normalize_offer(early, 1, depart_window=(7, 12)))
+        self.assertIsNotNone(_normalize_offer(mid, 1, depart_window=(7, 12)))
+        self.assertIsNone(_normalize_offer(late, 1, depart_window=(7, 12)))
+
+    def test_max_duration_drops_long_elapsed_time(self) -> None:
+        short = card(duration="1 h 20 min", price="90 €")
+        long = card(duration="6 h", price="40 €")
+        self.assertIsNotNone(_normalize_offer(short, 1, max_duration_hours=4))
+        self.assertIsNone(_normalize_offer(long, 1, max_duration_hours=4))
+
+    def test_min_layover_keeps_nonstops_and_drops_short_connections(self) -> None:
+        nonstop = card(stops="Nonstop", price="80 €")
+        short_hop = card(
+            stops="1 stop",
+            layover_hours=0.5,
+            layover_city="LIS",
+            price="70 €",
+        )
+        long_hop = card(
+            stops="1 stop",
+            layover_hours=3.0,
+            layover_city="LIS",
+            price="75 €",
+        )
+        self.assertIsNotNone(_normalize_offer(nonstop, 1, min_layover_hours=1))
+        self.assertIsNone(_normalize_offer(short_hop, 1, min_layover_hours=1))
+        self.assertIsNotNone(_normalize_offer(long_hop, 1, min_layover_hours=1))
+
+    def test_duration_sort_orders_by_hours_then_fare(self) -> None:
+        slow = FlightOffer(
+            airline="Slow",
+            departure="08:00",
+            arrival="14:00",
+            price="80 €",
+            price_eur=80.0,
+            duration="6 h",
+            duration_hours=6.0,
+            stops="Nonstop",
+            stops_count=0,
+            baggage_buffer_eur=0,
+            needs_bag_verify=False,
+        )
+        fast = FlightOffer(
+            airline="Fast",
+            departure="09:00",
+            arrival="10:20",
+            price="120 €",
+            price_eur=120.0,
+            duration="1 h 20 min",
+            duration_hours=1 + 20 / 60,
+            stops="Nonstop",
+            stops_count=0,
+            baggage_buffer_eur=0,
+            needs_bag_verify=False,
+        )
+        ranked = _rank_offers((slow, fast), top=5, sort="duration")
+        self.assertEqual(ranked[0].airline, "Fast")
+        self.assertEqual(ranked[1].airline, "Slow")
 
 
 if __name__ == "__main__":

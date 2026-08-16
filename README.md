@@ -37,7 +37,45 @@ uv run viajante flights MAD-BCN:2026-09-01 --fetch sweep
       131 €  3 hr 55 min  1 stop  14:05 -> 18:00     Air Europa
 ```
 
-One adult, one-way, economy. Up to eight offers per query, ordered by ranked total (fare plus baggage buffer). Vueling is cheaper on fare, but the buffer puts it behind Iberia at 109 € ranked. Pass `--sort fare` to order by cabin fare, or `--baggage-buffer 0` to rank on fare alone. `MAD-OPO:2026-10-09:2026-10-12` expands to outbound plus return as two one-way queries. `--fetch sweep` is the fast HTTP shortlist: one Chrome TLS session, owned shopping RPC, HTML card parse only if that misses (no Chromium). `--fetch detail` is the full Playwright scrape. `--fetch auto` (default) uses sweep for 3+ queries and detail for 1–2; if sweep comes back empty, blocked, or markup-drifted, viajante falls back to detail once. Nothing is written to disk unless you ask for it.
+One adult, one-way, economy. Up to eight offers per query, ordered by ranked total (fare plus baggage buffer). Vueling is cheaper on fare, but the buffer puts it behind Iberia at 109 € ranked. Pass `--sort fare` to order by cabin fare, `--sort duration` to order by elapsed time, or `--baggage-buffer 0` to rank on fare alone. `--airlines IB,I2`, `--exclude-airlines FR,RK`, `--depart-window 7-12`, `--max-duration 4`, and `--min-layover 1` are local post-filters applied after parse and before `--top`. `MAD-OPO:2026-10-09:2026-10-12` expands to outbound plus return as two one-way queries. `--fetch sweep` is the fast HTTP shortlist: one Chrome TLS session, owned shopping RPC, HTML card parse only if that misses (no Chromium). `--fetch detail` is the full Playwright scrape. `--fetch auto` (default) uses sweep for 3+ queries and detail for 1–2; if sweep comes back empty, blocked, or markup-drifted, viajante falls back to detail once. Nothing is written to disk unless you ask for it.
+
+## Cheapest days
+
+```bash
+uv run viajante dates MAD-LHR --from 2026-09-01 --to 2026-09-30
+```
+
+```text
+=== MAD -> LHR  2026-09-01 .. 2026-09-30 ===
+  2026-09-01       81 €
+  2026-09-02       81 €
+  2026-09-03       67 €
+```
+
+One compact table: date → cheapest EUR. The window is at most 31 days. This uses the owned Google Flights date-grid RPC on the same Chrome TLS session as sweep, not N full offer dumps. Airline and stops are omitted when the calendar body does not carry them. If that compact calendar parse misses, viajante prices each day with the shopping sweep and still prints one row per date (`fetch_backend: sweep`). `--fetch sweep` is accepted; `detail` is ignored because this command is HTTP-only.
+
+## Cheap destinations
+
+```bash
+uv run viajante explore MAD --from 2026-09-01 --days 7
+```
+
+```text
+=== From MAD  2026-09-01  (7-day window) ===
+       28 €  OPO  Porto  Portugal
+       61 €  LIS  Lisbon  Portugal
+```
+
+Explore asks Google for destinations from one origin, then prices a `--top` shortlist (default 12) with the shopping RPC on `--from`. `--month 2026-09` uses the first of that month. This is the “surprise me from MAD” list, not a brute-force airport matrix.
+
+## Airport lookup
+
+```bash
+uv run viajante airports london
+uv run viajante airports MAD
+```
+
+Offline IATA search. `FlightQuery` rejects unknown codes (`XXX` is not an airport). Known three-letter codes still work.
 
 ## Search hotels
 
@@ -75,7 +113,10 @@ You or an agent pass a route and dates. The CLI validates the input before any b
 
 ## Compare dates and save JSON
 
+For a cheapest-per-day grid, prefer `viajante dates` (31-day cap, one row per date). A comma list still dumps full offer blocks when you need the cards:
+
 ```bash
+uv run viajante dates MAD-BCN --from 2026-09-01 --to 2026-09-14 --save results/dates.viajante.json
 uv run viajante flights \
   MAD-BCN:2026-09-01,2026-09-02,2026-09-03 \
   --max-stops 0 \
@@ -83,7 +124,7 @@ uv run viajante flights \
   --save results/search.viajante.json
 ```
 
-Each date is searched sequentially and printed as its own block. Progress goes to stderr so you can pipe the table on its own. A 10-date sweep is a few seconds of HTTP. The same batch on `--fetch detail` still sleeps 4.5 to 6 seconds between queries on purpose.
+Each `flights` date is searched sequentially and printed as its own block. Progress goes to stderr so you can pipe the table on its own. A 10-date sweep is a few seconds of HTTP. The same batch on `--fetch detail` still sleeps 4.5 to 6 seconds between queries on purpose.
 
 ## CLI reference
 
@@ -96,9 +137,29 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 | `--cabin` | `economy` | `economy`, `premium-economy`, `business`, or `first`. |
 | `--top` | `8` | Offers kept per query after ranking and deduplication. |
 | `--baggage-buffer` | `70` | EUR added to low-cost fares when ranking. `0` ranks on fare alone. |
-| `--sort` | `ranked` | `ranked` uses fare+buffer for `--top`; `fare` uses cabin fare. |
+| `--sort` | `ranked` | `ranked` uses fare+buffer for `--top`; `fare` uses cabin fare; `duration` uses elapsed time. |
+| `--airlines` | off | Keep only these airline IATA codes (`IB,I2`). Applied after parse, before `--top`. |
+| `--exclude-airlines` | off | Drop these airline IATA codes (`FR,RK`). |
+| `--depart-window` | off | Keep local departure hours in `START-END` inclusive (`6-20`). |
 | `--fetch` | `auto` | `sweep` = owned shopping RPC, Chrome TLS session, HTML fallback; `detail` = Playwright max evidence. `auto` picks sweep for 3+ queries, detail for 1–2. |
+| `--max-layover` | off | Drop 1-stop offers whose layover exceeds this many hours. Nonstops are kept. |
+| `--min-layover` | off | Drop 1-stop offers whose layover is shorter than this many hours. Nonstops are kept. |
+| `--max-duration` | off | Drop offers whose elapsed time exceeds this many hours. |
 | `--save FILE` | off | Write the JSON report atomically. |
+
+| `dates` flag | Default | Behavior |
+|---|---|---|
+| `--from` / `--to` | required | Inclusive departure window. Cap is 31 days. |
+| `--max-stops` / `--adults` / `--cabin` | `1` / `1` / `economy` | Same meaning as `flights`. |
+| `--fetch` | `sweep` | Calendar uses the date-grid RPC. On a compact miss, each day is priced with shopping sweep. `detail` is accepted and ignored. |
+| `--save FILE` | off | Write the calendar JSON atomically. |
+
+| `explore` flag | Default | Behavior |
+|---|---|---|
+| `--from` / `--days` | date / `7` | Outbound date and trip-window label. |
+| `--month` | off | First of `YYYY-MM` plus that month's length. Do not combine with `--from`. |
+| `--top` | `12` | Destinations to price after the explore catalog. |
+| `--save FILE` | off | Write the explore JSON atomically. |
 
 | `hotels` flag | Default | Behavior |
 |---|---|---|
@@ -153,6 +214,10 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
           "duration_hours": 1.42,
           "stops": "Nonstop",
           "stops_count": 0,
+          "layover_city": null,
+          "layover_hours": null,
+          "flight_numbers": ["VY1001"],
+          "booking_token": "tok",
           "baggage_buffer_eur": 70,
           "needs_bag_verify": true
         }
@@ -162,7 +227,7 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 }
 ```
 
-A failed query replaces `raw_count`, `eligible_count`, and `offers` with `"error": {"code": ..., "message": ...}`. Codes are `no_results`, `browser_unavailable`, and `fetch_failed`. Hotel reports follow the same envelope, with `provider`, `price_basis: "total_stay"`, and an `applied` block recording the Booking filters that were actually used.
+A failed query replaces `raw_count`, `eligible_count`, and `offers` with `"error": {"code": ..., "message": ...}`. Codes an agent can switch on: `no_results`, `rejected`, `blocked`, `markup_drift`, `fetch_failed`, `browser_unavailable`. Hotel reports follow the same envelope, with `provider`, `price_basis: "total_stay"`, and an `applied` block recording the Booking filters that were actually used. `flight_numbers` and `booking_token` are present when the compact shopping body has them; otherwise they are `null`. No booking flow. Do not invent CO2.
 
 ## Python API
 
@@ -214,7 +279,7 @@ for result in report.queries:
             print(offer.total_price_eur, offer.title)
 ```
 
-`search_flights(..., fetch="auto")` matches the CLI. Sweep does not start Chromium. Hotels still use the same Chromium pacing as the CLI.
+`search_flights(..., fetch="auto")` matches the CLI. Sweep does not start Chromium. Hotels still use the same Chromium pacing as the CLI. `search_dates`, `search_explore`, and `lookup_airports` are the same surfaces as the `dates`, `explore`, and `airports` commands.
 
 ## Limitations
 

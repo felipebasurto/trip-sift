@@ -37,6 +37,10 @@ class ModelTests(unittest.TestCase):
             FlightQuery("MAD", "BCN", date(2026, 9, 1), adults=0)
         with self.assertRaises(ValueError):
             FlightQuery("MAD", "BCN", date(2026, 9, 1), cabin="space")  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            FlightQuery("XXX", "BCN", date(2026, 9, 1))
+        with self.assertRaises(ValueError):
+            FlightQuery("MAD", "XXX", date(2026, 9, 1))
 
     def test_flight_offer_requires_positive_price(self) -> None:
         with self.assertRaises(ValueError):

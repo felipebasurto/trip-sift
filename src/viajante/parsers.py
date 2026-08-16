@@ -55,6 +55,38 @@ def parse_duration_hours(duration: str | None) -> float | None:
     return days * 24.0 + hours + minutes / 60.0
 
 
+_CLOCK_12H = re.compile(
+    r"^\s*(\d{1,2}):(\d{2})\s*([AaPp][Mm])\b",
+)
+_CLOCK_24H = re.compile(
+    r"^\s*(\d{1,2}):(\d{2})\b",
+)
+
+
+def normalize_clock(text: str | None) -> str | None:
+    if not text:
+        return None
+    cleaned = text.replace("\xa0", " ").strip()
+    match = _CLOCK_12H.match(cleaned)
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        suffix = match.group(3).upper()
+        if not (1 <= hour <= 12 and 0 <= minute <= 59):
+            return None
+        hour = hour % 12
+        if suffix == "PM":
+            hour += 12
+        return f"{hour:02d}:{minute:02d}"
+    match = _CLOCK_24H.match(cleaned)
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+    return None
+
+
 def parse_stops_count(stops: str | None) -> int | None:
     if stops is None:
         return None

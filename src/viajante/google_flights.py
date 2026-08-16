@@ -8,6 +8,7 @@ import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Mapping, Optional, Protocol
@@ -19,12 +20,19 @@ from selectolax.lexbor import LexborHTMLParser
 from viajante.browser import BrowserSessionConfig, ChromiumSession
 from viajante.google_flights_rpc import (
     SHOPPING_POST_HEADERS,
+    CompactCalendarDay,
+    CompactExplorePlace,
     CompactParseMiss,
     EmptyShoppingResults,
+    ShoppingRejected,
+    build_calendar_request,
+    build_explore_request,
     build_shopping_request,
+    parse_calendar_body,
+    parse_explore_body,
     parse_shopping_body,
 )
-from viajante.models import FlightQuery
+from viajante.models import FlightCabin, FlightQuery
 from viajante.tfs import encode_tfs
 
 SEARCH_URL = "https://www.google.com/travel/flights"
@@ -91,6 +99,11 @@ class RawFlightCard:
     duration: Optional[str]
     stops: Optional[str]
     price: Optional[str]
+    layover_city: Optional[str] = None
+    layover_hours: Optional[float] = None
+    flight_numbers: Optional[tuple[str, ...]] = None
+    airline_codes: Optional[tuple[str, ...]] = None
+    booking_token: Optional[str] = None
 
 
 class NoFlightsFound(Exception):
@@ -110,6 +123,10 @@ class GoogleFlightsMarkupError(RuntimeError):
 
 class GoogleFlightsBlocked(RuntimeError):
     """HTTP sweep hit a consent wall, captcha, or traffic block."""
+
+
+class GoogleFlightsRejected(RuntimeError):
+    """Shopping RPC rejected the query (unknown airport or invalid request)."""
 
 
 def build_search_params(
@@ -392,7 +409,7 @@ class GoogleFlightsHttpSource:
         client = self._ensure_client()
         try:
             return self._fetch_compact(client, query)
-        except (GoogleFlightsBlocked, NoFlightsFound):
+        except (GoogleFlightsBlocked, NoFlightsFound, GoogleFlightsRejected):
             raise
         except CompactParseMiss:
             pass
@@ -442,6 +459,8 @@ class GoogleFlightsHttpSource:
             compact = parse_shopping_body(response.text)
         except EmptyShoppingResults as exc:
             raise NoFlightsFound() from exc
+        except ShoppingRejected as exc:
+            raise GoogleFlightsRejected(str(exc)) from exc
         return tuple(
             RawFlightCard(
                 airline=card.airline,
@@ -450,9 +469,72 @@ class GoogleFlightsHttpSource:
                 duration=card.duration,
                 stops=card.stops,
                 price=card.price,
+                layover_city=card.layover_city,
+                layover_hours=card.layover_hours,
+                flight_numbers=card.flight_numbers,
+                airline_codes=card.airline_codes,
+                booking_token=card.booking_token,
             )
             for card in compact
         )
+
+    def fetch_calendar(
+        self,
+        query: FlightQuery,
+        start: date,
+        end: date,
+    ) -> tuple[CompactCalendarDay, ...]:
+        client = self._ensure_client()
+        url, body = build_calendar_request(
+            query,
+            start,
+            end,
+            html_lang=self._html_lang,
+            currency=self._currency,
+        )
+        response = self._post_rpc(client, url, body)
+        try:
+            return parse_calendar_body(response.text)
+        except ShoppingRejected as exc:
+            raise GoogleFlightsRejected(str(exc)) from exc
+
+    def fetch_explore(
+        self,
+        origin: str,
+        departure_date: date,
+        *,
+        adults: int = 1,
+        cabin: FlightCabin = "economy",
+    ) -> tuple[CompactExplorePlace, ...]:
+        client = self._ensure_client()
+        url, body = build_explore_request(
+            origin,
+            departure_date,
+            adults=adults,
+            cabin=cabin,
+            html_lang=self._html_lang,
+            currency=self._currency,
+        )
+        response = self._post_rpc(client, url, body)
+        try:
+            return parse_explore_body(response.text)
+        except ShoppingRejected as exc:
+            raise GoogleFlightsRejected(str(exc)) from exc
+
+    def _post_rpc(self, client: SweepHttpClient, url: str, body: str) -> SweepHttpResponse:
+        try:
+            response = client.post(
+                url, data=body, headers=SHOPPING_POST_HEADERS, timeout=self._timeout
+            )
+        except CompactParseMiss:
+            raise
+        except Exception as exc:
+            raise CompactParseMiss(f"shopping POST failed: {exc}") from exc
+        if response.status in {403, 429, 503} or looks_blocked(response.text, response.url):
+            _raise_if_blocked(response.status, response.text, response.url, url)
+        if response.status >= 400:
+            raise CompactParseMiss(f"shopping HTTP {response.status}")
+        return response
 
 
 class GoogleFlightsSource:
