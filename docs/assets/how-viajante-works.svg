@@ -21,7 +21,7 @@
   <path d="M80 168H430" stroke="#3A4852" stroke-width="3" stroke-linecap="round"/>
   <path d="M430 168C470 168 490 128 530 128H780" stroke="#3D9B8F" stroke-width="3" fill="none" stroke-linecap="round"/>
   <path d="M430 168C470 168 490 208 530 208H780" stroke="#E06A3A" stroke-width="3" fill="none" stroke-linecap="round"/>
-  <path d="M780 128C820 128 840 168 880 168H1120" stroke="#E8C27A" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M780 128C820 128 840 168 880 168H1108" stroke="#E8C27A" stroke-width="3" fill="none" stroke-linecap="round"/>
   <path d="M780 208C820 208 840 168 880 168" stroke="#E8C27A" stroke-width="3" fill="none" stroke-linecap="round"/>
 
   <g font-family="system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">
