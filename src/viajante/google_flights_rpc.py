@@ -9,7 +9,17 @@ from datetime import date, datetime
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
-from viajante.models import FlightCabin, FlightQuery, MultiCity, RoundTrip, Trip
+from viajante.models import (
+    FlightCabin,
+    FlightQuery,
+    MultiCity,
+    RawJourneyLeg,
+    RawLayover,
+    RawSegment,
+    RoundTrip,
+    Trip,
+)
+from viajante.parsers import normalize_clock
 
 SHOPPING_RESULTS_URL = (
     "https://www.google.com/_/FlightsFrontendUi/data/"
@@ -65,6 +75,7 @@ class RawFlightCard:
     flight_numbers: Optional[tuple[str, ...]] = None
     airline_codes: Optional[tuple[str, ...]] = None
     booking_token: Optional[str] = None
+    legs: tuple[RawJourneyLeg, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -440,11 +451,15 @@ def _itinerary_to_card(item: list[Any]) -> Optional[RawFlightCard]:
     if price is None:
         return None
     layover_city, layover_hours = _layover_from_flight(flight)
+    journeys = _journey_flights(item[0])
+    journey_legs = tuple(_flight_to_journey_leg(row) for row in journeys) if journeys else ()
+    if not journey_legs:
+        journey_legs = (_flight_to_journey_leg(flight),)
     return RawFlightCard(
         airline=", ".join(airlines) or None,
-        departure=_format_clock(flight[5]) or _clock_from_leg(flight[2], 0, 8),
-        arrival=_format_clock(flight[8]) or _clock_from_leg(flight[2], -1, 10),
-        duration=_format_duration_minutes(flight[9]),
+        departure=_flight_departure(flight),
+        arrival=_flight_arrival(flight),
+        duration=_format_duration(flight[9] if len(flight) > 9 else None),
         stops=_format_stops(flight[2]),
         price=price,
         layover_city=layover_city,
@@ -452,6 +467,31 @@ def _itinerary_to_card(item: list[Any]) -> Optional[RawFlightCard]:
         flight_numbers=_flight_numbers(flight),
         airline_codes=_airline_codes(flight),
         booking_token=_booking_token(item[1] if len(item) > 1 else None),
+        legs=journey_legs,
+    )
+
+
+def _flight_to_journey_leg(flight: list[Any]) -> RawJourneyLeg:
+    layovers = _layovers_from_flight(flight)
+    return RawJourneyLeg(
+        departure=_flight_departure(flight),
+        arrival=_flight_arrival(flight),
+        duration=_format_duration(flight[9] if len(flight) > 9 else None),
+        stops=_format_stops(flight[2]),
+        segments=_segments_from_flight(flight),
+        layovers=layovers,
+    )
+
+
+def _flight_departure(flight: list[Any]) -> Optional[str]:
+    return _format_clock(flight[5] if len(flight) > 5 else None) or _clock_from_leg(
+        flight[2] if len(flight) > 2 else None, 0, 8
+    )
+
+
+def _flight_arrival(flight: list[Any]) -> Optional[str]:
+    return _format_clock(flight[8] if len(flight) > 8 else None) or _clock_from_leg(
+        flight[2] if len(flight) > 2 else None, -1, 10
     )
 
 
@@ -491,6 +531,8 @@ def _clock_from_leg(legs: object, index: int, field: int) -> Optional[str]:
 
 
 def _format_clock(value: object) -> Optional[str]:
+    if isinstance(value, str):
+        return normalize_clock(value)
     parsed = _clock_hm(value)
     if parsed is None:
         return None
@@ -498,38 +540,83 @@ def _format_clock(value: object) -> Optional[str]:
     return f"{hour:02d}:{minute:02d}"
 
 
-def _layover_from_flight(flight: list[Any]) -> tuple[Optional[str], Optional[float]]:
+def _as_clock_int(value: object) -> Optional[int]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float) and not value.is_integer():
+        return None
+    return int(value)
+
+
+def _layovers_from_flight(flight: list[Any]) -> tuple[RawLayover, ...]:
     block = flight[13] if len(flight) > 13 else None
+    rows: list[RawLayover] = []
     if isinstance(block, list) and block:
-        best_city: Optional[str] = None
-        best_hours: Optional[float] = None
         for entry in block:
-            if not isinstance(entry, list) or not entry or not isinstance(entry[0], int):
+            if not isinstance(entry, list) or not entry:
                 continue
-            hours = entry[0] / 60.0
+            minutes = _as_clock_int(entry[0])
+            if minutes is None or minutes < 0:
+                continue
             city: Optional[str] = None
             if len(entry) > 5 and isinstance(entry[5], str) and entry[5]:
                 city = entry[5]
             elif len(entry) > 1 and isinstance(entry[1], str) and entry[1]:
                 city = entry[1]
-            if best_hours is None or hours > best_hours:
-                best_hours = hours
-                best_city = city
-        if best_hours is not None:
-            return best_city, best_hours
-    return _layover_from_legs(flight[2] if len(flight) > 2 else None)
+            rows.append(RawLayover(city=city, hours=minutes / 60.0))
+    if rows:
+        return tuple(rows)
+    city, hours = _layover_from_legs(flight[2] if len(flight) > 2 else None)
+    if city is None and hours is None:
+        return ()
+    return (RawLayover(city=city, hours=hours),)
+
+
+def _layover_from_flight(flight: list[Any]) -> tuple[Optional[str], Optional[float]]:
+    layovers = _layovers_from_flight(flight)
+    if not layovers:
+        return None, None
+    if len(layovers) == 1:
+        return layovers[0].city, layovers[0].hours
+    longest = max(layovers, key=lambda row: row.hours or 0.0)
+    return longest.city, longest.hours
 
 
 def _clock_hm(value: object) -> Optional[tuple[int, int]]:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        hour = _as_clock_int(value)
+        if hour is None:
+            return None
+        return _normalize_hm(hour, 0)
     if not isinstance(value, list) or not value:
         return None
-    hour = value[0]
-    minute = value[1] if len(value) > 1 else 0
-    if not isinstance(hour, int) or not isinstance(minute, int):
+    if len(value) == 1 and isinstance(value[0], list):
+        return _clock_hm(value[0])
+    hour = _as_clock_int(value[0])
+    minute = _as_clock_int(value[1]) if len(value) > 1 else 0
+    if hour is None:
         return None
-    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+    if minute is None:
+        minute = 0
+    suffix = value[2] if len(value) > 2 and isinstance(value[2], str) else None
+    if suffix:
+        clock = normalize_clock(f"{hour}:{minute:02d} {suffix}")
+        if clock is None:
+            return None
+        parsed_hour, parsed_minute = clock.split(":", 1)
+        return int(parsed_hour), int(parsed_minute)
+    return _normalize_hm(hour, minute)
+
+
+def _normalize_hm(hour: int, minute: int) -> Optional[tuple[int, int]]:
+    if not (0 <= minute <= 59):
         return None
-    return hour, minute
+    if 0 <= hour <= 23:
+        return hour, minute
+    # Next-day arrivals sometimes use 24:05 rather than 00:05.
+    if 24 <= hour <= 47:
+        return hour % 24, minute
+    return None
 
 
 def _ymd(value: object) -> Optional[tuple[int, int, int]]:
@@ -573,6 +660,13 @@ def _is_shopping_rejected(text: str) -> bool:
     return "travel.frontend.flights.ErrorResponse" in text
 
 
+def _format_duration(value: object) -> Optional[str]:
+    minutes = _as_clock_int(value)
+    if minutes is None or minutes < 0:
+        return None
+    return _format_duration_minutes(minutes)
+
+
 def _format_duration_minutes(minutes: int) -> str:
     hours, mins = divmod(max(0, minutes), 60)
     if hours and mins:
@@ -580,6 +674,34 @@ def _format_duration_minutes(minutes: int) -> str:
     if hours:
         return f"{hours} hr"
     return f"{mins} min"
+
+
+def _segments_from_flight(flight: list[Any]) -> tuple[RawSegment, ...]:
+    legs = flight[2] if len(flight) > 2 else None
+    if not isinstance(legs, list):
+        return ()
+    segments: list[RawSegment] = []
+    for leg in legs:
+        if not isinstance(leg, list):
+            continue
+        ident = _leg_ident(leg)
+        airline = None
+        if ident is not None and len(leg) > 22 and isinstance(leg[22], list) and len(leg[22]) > 3:
+            name = leg[22][3]
+            airline = name if isinstance(name, str) and name else ident[0]
+        elif ident is not None:
+            airline = ident[0]
+        segments.append(
+            RawSegment(
+                origin=leg[3] if len(leg) > 3 and isinstance(leg[3], str) else None,
+                destination=leg[6] if len(leg) > 6 and isinstance(leg[6], str) else None,
+                departure=_format_clock(leg[8] if len(leg) > 8 else None),
+                arrival=_format_clock(leg[10] if len(leg) > 10 else None),
+                airline=airline,
+                flight_number=None if ident is None else f"{ident[0]}{ident[1]}",
+            )
+        )
+    return tuple(segments)
 
 
 def parse_calendar_body(text: str) -> tuple[CompactCalendarDay, ...]:

@@ -92,6 +92,30 @@ RT_GRAMMAR = "ORIGIN-DESTINATION:OUT:BACK"
 MULTI_GRAMMAR = "ORIGIN-DESTINATION:DATE"
 _RT_DATES = re.compile(r"^(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$")
 _ONE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_TRIP_ALIASES = {
+    "one-way": "one-way",
+    "oneway": "one-way",
+    "one_way": "one-way",
+    "rt": "rt",
+    "round-trip": "rt",
+    "round_trip": "rt",
+    "roundtrip": "rt",
+    "multi": "multi",
+    "multi-city": "multi",
+    "multi_city": "multi",
+    "multicity": "multi",
+}
+# Hide connections slower than this multiple of the fastest nonstop/shortest
+# elapsed time. Short-haul overnight hops drop out; long-haul 1-stops stay.
+RANKED_SLOW_CONNECTION_FACTOR = 3.0
+
+
+def normalize_trip_kind(trip: str) -> TripKind:
+    key = trip.strip().casefold().replace(" ", "-")
+    try:
+        return _TRIP_ALIASES[key]  # type: ignore[return-value]
+    except KeyError:
+        raise ValueError("trip must be 'one-way', 'rt', or 'multi'") from None
 
 
 def resolve_fetch_mode(fetch: FetchMode, query_count: int) -> Literal["sweep", "detail"]:
@@ -159,21 +183,6 @@ class _FlightSource(Protocol):
     def close(self) -> None: ...
 
 
-def _probe_query(trip: Trip) -> FlightQuery:
-    if isinstance(trip, FlightQuery):
-        return trip
-    first = trip.legs[0]
-    max_stops = first.max_stops
-    return FlightQuery(
-        first.origin,
-        first.destination,
-        first.departure_date,
-        max_stops=max_stops,
-        adults=trip.adults,
-        cabin=trip.cabin,
-    )
-
-
 def _trip_max_stops(trip: Trip) -> int:
     if isinstance(trip, (FlightQuery, RoundTrip)):
         return trip.max_stops
@@ -182,12 +191,9 @@ def _trip_max_stops(trip: Trip) -> int:
 
 def _progress_label(trip: Trip) -> str:
     if isinstance(trip, FlightQuery):
-        return (
-            f"{trip.origin} -> {trip.destination} {trip.departure_date.isoformat()}"
-        )
+        return f"{trip.origin} -> {trip.destination} {trip.departure_date.isoformat()}"
     return " / ".join(
-        f"{leg.origin} -> {leg.destination} {leg.departure_date.isoformat()}"
-        for leg in trip.legs
+        f"{leg.origin} -> {leg.destination} {leg.departure_date.isoformat()}" for leg in trip.legs
     )
 
 
@@ -277,18 +283,17 @@ def plan_unit_count(plan: FlightPlan) -> int:
 def parse_flight_plan(
     specs: Sequence[str],
     *,
-    trip: TripKind = "one-way",
+    trip: str = "one-way",
     max_stops: int,
     adults: int = 1,
     cabin: FlightCabin = "economy",
 ) -> FlightPlan:
-    if trip == "one-way":
+    kind = normalize_trip_kind(trip)
+    if kind == "one-way":
         return parse_route_specs(specs, max_stops=max_stops, adults=adults, cabin=cabin)
-    if trip == "rt":
+    if kind == "rt":
         return _parse_round_trip_plan(specs, max_stops=max_stops, adults=adults, cabin=cabin)
-    if trip == "multi":
-        return _parse_multi_city_plan(specs, max_stops=max_stops, adults=adults, cabin=cabin)
-    raise ValueError("trip must be 'one-way', 'rt', or 'multi'")
+    return _parse_multi_city_plan(specs, max_stops=max_stops, adults=adults, cabin=cabin)
 
 
 def _split_route(spec: str, *, grammar: str) -> tuple[str, str, str]:
@@ -542,11 +547,36 @@ def _normalize_offer(
         booking_token=raw.booking_token,
         baggage_buffer_eur=baggage_buffer_eur(airline, buffer_eur=buffer_eur),
         needs_bag_verify=is_low_cost(airline),
+        legs=raw.legs,
     )
 
 
 def _effective_cost(offer: FlightOffer) -> float:
     return offer.price_eur + offer.baggage_buffer_eur
+
+
+def _fastest_duration(offers: Sequence[FlightOffer]) -> Optional[float]:
+    hours = [offer.duration_hours for offer in offers if offer.duration_hours is not None]
+    return min(hours) if hours else None
+
+
+def _hide_slow_connections(
+    offers: Sequence[FlightOffer],
+) -> Tuple[FlightOffer, ...]:
+    """Drop connections many times slower than the fastest nonstop/shortest offer."""
+    nonstops = [offer for offer in offers if offer.stops_count == 0]
+    baseline = _fastest_duration(nonstops) or _fastest_duration(offers)
+    if baseline is None or baseline <= 0:
+        return tuple(offers)
+    limit = baseline * RANKED_SLOW_CONNECTION_FACTOR
+    kept: list[FlightOffer] = []
+    for offer in offers:
+        duration = offer.duration_hours
+        connecting = offer.stops_count is not None and offer.stops_count > 0
+        if connecting and duration is not None and duration > limit:
+            continue
+        kept.append(offer)
+    return tuple(kept) if kept else tuple(offers)
 
 
 def _rank_offers(
@@ -555,6 +585,8 @@ def _rank_offers(
     top: int,
     sort: FlightSort = "ranked",
 ) -> Tuple[FlightOffer, ...]:
+    rows = offers if sort != "ranked" else _hide_slow_connections(offers)
+
     def sort_key(offer: FlightOffer) -> tuple[float, float]:
         duration = offer.duration_hours
         if duration is None:
@@ -564,7 +596,7 @@ def _rank_offers(
         primary = offer.price_eur if sort == "fare" else _effective_cost(offer)
         return (primary, duration)
 
-    rows = sorted(offers, key=sort_key)
+    rows = sorted(rows, key=sort_key)
     seen: set[tuple] = set()
     deduped: list[FlightOffer] = []
     for offer in rows:
@@ -611,7 +643,6 @@ def _run_search(
     report_progress = progress or (lambda _: None)
     results: list[QueryResult] = []
     for index, trip in enumerate(trips):
-        probe = _probe_query(trip)
         report_progress(f"[{index + 1}/{len(trips)}] {_progress_label(trip)}")
         outcome: Optional[QueryResult] = None
         failure: Optional[SearchError] = None
@@ -637,7 +668,7 @@ def _run_search(
                     is not None
                 ]
                 outcome = QuerySuccess(
-                    query=probe,
+                    query=trip,
                     raw_count=len(cards),
                     eligible_count=len(eligible),
                     offers=_rank_offers(eligible, top=top, sort=sort),
@@ -652,7 +683,7 @@ def _run_search(
                     sleep(retry_backoff_seconds(attempt, random_gen))
         if outcome is None:
             outcome = QueryFailure(
-                query=probe,
+                query=trip,
                 error=failure
                 or SearchError(
                     code=SearchErrorCode.FETCH_FAILED,

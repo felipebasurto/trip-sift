@@ -18,6 +18,16 @@ _SORT_LOWEST_PRICE = 3
 # Google drops brands/amenities/free-cancellation when this tail is missing.
 _REQUEST_META = (1, None, None, None, None, None, 13, None, 0)
 _HOTEL_ENTRY_KEY = "397419284"
+NON_PROPERTY_TITLES = frozenset(
+    {
+        "closed",
+        "open",
+        "sold out",
+        "unavailable",
+        "no rooms",
+        "fully booked",
+    }
+)
 
 
 class HotelsParseMiss(ValueError):
@@ -256,6 +266,8 @@ def _record_to_card(record: list[Any]) -> Optional[RawHotelCard]:
         return None
     title = record[1]
     if not isinstance(title, str) or not title.strip():
+        return None
+    if title.strip().casefold() in NON_PROPERTY_TITLES:
         return None
     return RawHotelCard(
         title=title,

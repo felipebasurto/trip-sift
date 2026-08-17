@@ -213,6 +213,10 @@ class PureHotelLogicTests(unittest.TestCase):
             with self.subTest(price=price):
                 self.assertIsNone(_normalize_card(card(total_price=price)))
 
+    def test_non_property_titles_are_dropped(self) -> None:
+        self.assertIsNone(_normalize_card(card(title="closed", total_price="122 €")))
+        self.assertIsNotNone(_normalize_card(card(title="Plus Prague Hostel", total_price="95 €")))
+
     def test_strict_minimum_rating_rejects_unknown_and_low_scores(self) -> None:
         strict_query = query(min_rating=8.0)
 

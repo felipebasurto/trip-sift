@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import sys
+from typing import Optional, Sequence
+
+from viajante.explore import DEFAULT_EXPLORE_TOP
+from viajante.flights import DEFAULT_BAGGAGE_BUFFER_EUR
 from viajante.mcp_handlers import (
     lookup_airports_tool,
     search_dates_tool,
@@ -10,14 +15,19 @@ from viajante.mcp_handlers import (
     search_hotels_tool,
 )
 
+_HELP = """\
+viajante-mcp — stdio MCP server for local flight and hotel search.
 
-def main() -> None:
-    try:
-        from mcp.server.fastmcp import FastMCP
-    except ImportError as exc:
-        raise SystemExit(
-            "viajante-mcp requires the mcp extra. Install with: uv sync --extra mcp"
-        ) from exc
+Install:  uv sync --extra mcp
+Run:      viajante-mcp
+
+Tools: search_flights, search_dates, search_explore, search_hotels, lookup_airports.
+No auth. One search at a time in this process.
+"""
+
+
+def build_server():
+    from mcp.server.fastmcp import FastMCP
 
     server = FastMCP("viajante")
 
@@ -30,6 +40,14 @@ def main() -> None:
         cabin: str = "economy",
         top: int = 8,
         fetch: str = "auto",
+        airlines: str | None = None,
+        exclude_airlines: str | None = None,
+        depart_window: str | None = None,
+        max_duration: float | None = None,
+        min_layover: float | None = None,
+        max_layover: float | None = None,
+        baggage_buffer: int = DEFAULT_BAGGAGE_BUFFER_EUR,
+        sort: str = "ranked",
     ) -> dict:
         return dict(
             search_flights_tool(
@@ -40,6 +58,14 @@ def main() -> None:
                 cabin=cabin,  # type: ignore[arg-type]
                 top=top,
                 fetch=fetch,
+                airlines=airlines,
+                exclude_airlines=exclude_airlines,
+                depart_window=depart_window,
+                max_duration=max_duration,
+                min_layover=min_layover,
+                max_layover=max_layover,
+                baggage_buffer=baggage_buffer,
+                sort=sort,  # type: ignore[arg-type]
             )
         )
 
@@ -64,8 +90,28 @@ def main() -> None:
         )
 
     @server.tool()
-    def search_explore(origin: str, start: str, days: int = 7, top: int = 8) -> dict:
-        return dict(search_explore_tool(origin, start, days=days, top=top))
+    def search_explore(
+        origin: str,
+        start: str | None = None,
+        days: int = 7,
+        top: int = DEFAULT_EXPLORE_TOP,
+        month: str | None = None,
+        adults: int = 1,
+        cabin: str = "economy",
+        max_stops: int = 1,
+    ) -> dict:
+        return dict(
+            search_explore_tool(
+                origin,
+                start,
+                days=days,
+                top=top,
+                month=month,
+                adults=adults,
+                cabin=cabin,  # type: ignore[arg-type]
+                max_stops=max_stops,
+            )
+        )
 
     @server.tool()
     def search_hotels(
@@ -78,7 +124,7 @@ def main() -> None:
         min_rating: float | None = None,
         entire_home: bool = False,
         free_cancellation: bool = True,
-        source: str = "booking",
+        source: str = "google",
     ) -> dict:
         return dict(
             search_hotels_tool(
@@ -99,6 +145,20 @@ def main() -> None:
     def lookup_airports(query: str, limit: int = 20) -> list:
         return lookup_airports_tool(query, limit=limit)
 
+    return server
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    args = list(sys.argv[1:] if argv is None else argv)
+    try:
+        server = build_server()
+    except ImportError as exc:
+        raise SystemExit(
+            "viajante-mcp requires the mcp extra. Install with: uv sync --extra mcp"
+        ) from exc
+    if args and args[0] in {"-h", "--help"}:
+        print(_HELP.strip())
+        return
     server.run()
 
 

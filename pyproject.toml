@@ -23,7 +23,7 @@ Repository = "https://github.com/felipebasurto/viajante"
 Issues = "https://github.com/felipebasurto/viajante/issues"
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.6.0"]
+mcp = ["mcp>=1.6,<2"]
 
 [project.scripts]
 viajante = "viajante.cli:main"
@@ -45,6 +45,7 @@ select = ["E", "F", "I", "B"]
 
 [dependency-groups]
 dev = [
+    "mcp>=1.6,<2",
     "pre-commit>=4.3.0",
     "ruff==0.15.12",
 ]

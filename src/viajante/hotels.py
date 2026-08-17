@@ -22,6 +22,7 @@ from viajante.google_hotels import (
     build_applied_filters as build_google_filters,
 )
 from viajante.google_hotels_rpc import (
+    NON_PROPERTY_TITLES,
     EmptyHotelResults,
     HotelsBlocked,
     HotelsParseMiss,
@@ -76,7 +77,10 @@ class _HotelSource(Protocol):
 
 
 def _normalize_card(card: RawHotelCard) -> Optional[HotelOffer]:
-    if not card.title.strip() or not card.total_price.strip():
+    title = card.title.strip()
+    if not title or not card.total_price.strip():
+        return None
+    if title.casefold() in NON_PROPERTY_TITLES:
         return None
     total_price_eur = parse_price_eur(card.total_price)
     if total_price_eur is None or total_price_eur <= 0:
@@ -193,6 +197,8 @@ def _run_search(
     provider: HotelProvider = "booking.com",
     applied_filters: Optional[Callable[..., AppliedHotelFilters]] = None,
     delay_seconds: Optional[Callable[[random.Random], float]] = None,
+    fetch_backend: Optional[Literal["booking", "google"]] = None,
+    fetch_ms: Optional[int] = None,
 ) -> HotelSearchReport:
     if not queries:
         raise ValueError("at least one query is required")
@@ -264,6 +270,8 @@ def _run_search(
         locale=html_lang,
         currency=currency,
         provider=provider,
+        fetch_backend=fetch_backend,
+        fetch_ms=fetch_ms,
     )
 
 
@@ -286,15 +294,18 @@ def search_hotels(
         provider: HotelProvider = "google-hotels"
         applied_filters = build_google_filters
         delay_seconds = sweep_inter_query_delay_seconds
+        fetch_backend: Literal["booking", "google"] = "google"
     elif source == "booking":
         hotel_source = BookingHotelsSource(default_state_dir())
         provider = "booking.com"
         applied_filters = build_booking_filters
         delay_seconds = inter_query_delay_seconds
+        fetch_backend = "booking"
     else:
         raise ValueError("source must be booking or google")
+    started = time.perf_counter()
     try:
-        return _run_search(
+        report = _run_search(
             queries,
             top=top,
             source=hotel_source,
@@ -307,9 +318,20 @@ def search_hotels(
             provider=provider,
             applied_filters=applied_filters,
             delay_seconds=delay_seconds,
+            fetch_backend=fetch_backend,
         )
     finally:
         hotel_source.close()
+    fetch_ms = max(0, int((time.perf_counter() - started) * 1000))
+    return HotelSearchReport(
+        searched_at=report.searched_at,
+        queries=report.queries,
+        locale=report.locale,
+        currency=report.currency,
+        provider=report.provider,
+        fetch_backend=fetch_backend,
+        fetch_ms=fetch_ms,
+    )
 
 
 def write_hotel_report_atomic(

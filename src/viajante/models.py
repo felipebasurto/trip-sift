@@ -82,6 +82,7 @@ class FlightQuery:
 
     def to_dict(self) -> Mapping[str, object]:
         return {
+            "trip": "one-way",
             "origin": self.origin,
             "destination": self.destination,
             "departure_date": self.departure_date.isoformat(),
@@ -115,6 +116,18 @@ class RoundTrip:
         object.__setattr__(self, "origin", origin)
         object.__setattr__(self, "destination", destination)
 
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "trip": "rt",
+            "origin": self.origin,
+            "destination": self.destination,
+            "departure_date": self.departure_date.isoformat(),
+            "return_date": self.return_date.isoformat(),
+            "max_stops": self.max_stops,
+            "adults": self.adults,
+            "cabin": self.cabin,
+        }
+
     @property
     def legs(self) -> Tuple[FlightLeg, FlightLeg]:
         return (
@@ -137,6 +150,26 @@ class MultiCity:
             raise ValueError("multi-city dates must be non-decreasing")
         _require_adults(self.adults)
         _require_cabin(self.cabin)
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "trip": "multi",
+            "origin": self.legs[0].origin,
+            "destination": self.legs[-1].destination,
+            "departure_date": self.legs[0].departure_date.isoformat(),
+            "max_stops": max(leg.max_stops for leg in self.legs),
+            "adults": self.adults,
+            "cabin": self.cabin,
+            "legs": [
+                {
+                    "origin": leg.origin,
+                    "destination": leg.destination,
+                    "departure_date": leg.departure_date.isoformat(),
+                    "max_stops": leg.max_stops,
+                }
+                for leg in self.legs
+            ],
+        }
 
 
 Trip = Union[FlightQuery, RoundTrip, MultiCity]
@@ -278,7 +311,7 @@ class SearchError:
 
 @dataclass(frozen=True)
 class QuerySuccess:
-    query: FlightQuery
+    query: Trip
     raw_count: int
     eligible_count: int
     offers: Tuple[FlightOffer, ...]
@@ -302,7 +335,7 @@ class QuerySuccess:
 
 @dataclass(frozen=True)
 class QueryFailure:
-    query: FlightQuery
+    query: Trip
     error: SearchError
     status: Literal["error"] = field(init=False, default="error")
 
@@ -648,6 +681,9 @@ class HotelQueryFailure:
 HotelQueryResult = Union[HotelQuerySuccess, HotelQueryFailure]
 
 
+HotelFetchBackend = Literal["booking", "google"]
+
+
 @dataclass(frozen=True)
 class HotelSearchReport:
     searched_at: datetime
@@ -657,6 +693,8 @@ class HotelSearchReport:
     schema_version: int = field(init=False, default=1)
     provider: HotelProvider = "booking.com"
     price_basis: Literal["total_stay"] = field(init=False, default="total_stay")
+    fetch_backend: Optional[HotelFetchBackend] = None
+    fetch_ms: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.searched_at.tzinfo is not None:
@@ -674,5 +712,7 @@ class HotelSearchReport:
             "currency": self.currency,
             "locale": self.locale,
             "price_basis": self.price_basis,
+            "fetch_backend": self.fetch_backend,
+            "fetch_ms": self.fetch_ms,
             "queries": [result.to_dict() for result in self.queries],
         }

@@ -148,10 +148,7 @@ def build_itinerary_url(
     token = booking_token.strip()
     if not token:
         raise ValueError("booking_token must not be blank")
-    return (
-        f"{SEARCH_URL}?"
-        + urlencode({"hl": html_lang, "curr": currency, "booking_token": token})
-    )
+    return f"{SEARCH_URL}?" + urlencode({"hl": html_lang, "curr": currency, "booking_token": token})
 
 
 def _text_or_none(node) -> Optional[str]:
@@ -438,12 +435,8 @@ class GoogleFlightsHttpSource:
             self._owned_client.close()
             self._owned_client = None
 
-    def _fetch_compact(
-        self, client: SweepHttpClient, trip: Trip
-    ) -> tuple[RawFlightCard, ...]:
-        url, body = build_shopping_request(
-            trip, html_lang=self._html_lang, currency=self._currency
-        )
+    def _fetch_compact(self, client: SweepHttpClient, trip: Trip) -> tuple[RawFlightCard, ...]:
+        url, body = build_shopping_request(trip, html_lang=self._html_lang, currency=self._currency)
         try:
             response = client.post(
                 url, data=body, headers=SHOPPING_POST_HEADERS, timeout=self._timeout
