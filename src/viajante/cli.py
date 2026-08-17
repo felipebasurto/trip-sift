@@ -57,46 +57,46 @@ from viajante.models import (
 
 FLIGHTS_EXAMPLES = """\
 Examples:
-  viajante flights MAD-BCN:2026-09-01
-  viajante flights MAD-OPO:2026-10-09:2026-10-12
-  viajante flights --trip rt MAD-PRG:2026-12-03:2026-12-09 --fetch sweep
-  viajante flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
-  viajante flights MAD-BCN:2026-09-01,2026-09-02 --top 5 --sort fare --save results/search.json
-  viajante flights MAD-BCN:2026-09-01 --fetch sweep
-  viajante flights MAD-OPO:2026-10-09 --fetch sweep --max-layover 8
-  viajante flights MAD-BCN:2026-09-01 --fetch detail
-  viajante flights MAD-BCN:2026-09-01 --exclude-airlines UX --depart-window 7-12 --fetch sweep
-  viajante flights MAD-BCN:2026-09-01 --airlines IB,I2 --sort duration
-  viajante flights MAD-BCN:2026-09-01 --max-duration 4 --min-layover 1 --max-layover 8
+  viajante flights JFK-LHR:2026-09-15
+  viajante flights JFK-NRT:2026-10-09:2026-10-20
+  viajante flights --trip rt LAX-NRT:2026-10-12:2026-10-26 --fetch sweep
+  viajante flights SYD-AKL:2026-11-03 AKL-SYD:2026-11-10 --max-stops 0
+  viajante flights JFK-LHR:2026-09-15,2026-09-16 --top 5 --sort fare --save results/search.json
+  viajante flights JFK-LHR:2026-09-15 --fetch sweep
+  viajante flights LAX-NRT:2026-10-12 --fetch sweep --max-layover 8
+  viajante flights JFK-LHR:2026-09-15 --fetch detail
+  viajante flights JFK-LHR:2026-09-15 --exclude-airlines F9,NK --depart-window 7-12 --fetch sweep
+  viajante flights JFK-LHR:2026-09-15 --airlines BA,AA --sort duration
+  viajante flights JFK-LHR:2026-09-15 --max-duration 16 --min-layover 1 --max-layover 8
 """
 
 DATES_EXAMPLES = """\
 Examples:
-  viajante dates MAD-LHR --from 2026-09-01 --to 2026-09-30
-  viajante dates MAD-BCN --from 2026-09-01 --to 2026-09-14 --fetch sweep
+  viajante dates LAX-NRT --from 2026-10-01 --to 2026-10-31
+  viajante dates JFK-LHR --from 2026-09-01 --to 2026-09-14 --fetch sweep
 """
 
 EXPLORE_EXAMPLES = """\
 Examples:
-  viajante explore MAD --from 2026-09-01 --days 7
-  viajante explore MAD --month 2026-09
+  viajante explore JFK --from 2026-09-15 --days 7
+  viajante explore NRT --month 2026-10
 """
 
 AIRPORTS_EXAMPLES = """\
 Examples:
+  viajante airports tokyo
   viajante airports london
-  viajante airports MAD
-  viajante airports barcelona
+  viajante airports JFK
 """
 
 HOTELS_EXAMPLES = """\
 Examples:
-  viajante hotels Prague 2026-12-04 2026-12-07
-  viajante hotels "Prague, Czech Republic" 2026-12-04 2026-12-10 --top 5
-  viajante hotels Prague 2026-12-04 2026-12-07 --entire-home --min-rating 8.5
-  viajante hotels Prague 2026-12-04 2026-12-07 --compare-cancellation
-  viajante hotels Prague 2026-12-04 2026-12-07 --save results/hotels.json
-  viajante hotels Prague 2026-12-04 2026-12-07 --source google --top 3
+  viajante hotels Tokyo 2026-10-12 2026-10-16
+  viajante hotels "Mexico City" 2026-12-04 2026-12-10 --top 5
+  viajante hotels Tokyo 2026-10-12 2026-10-16 --entire-home --min-rating 8.5
+  viajante hotels Tokyo 2026-10-12 2026-10-16 --compare-cancellation
+  viajante hotels Tokyo 2026-10-12 2026-10-16 --save results/hotels.json
+  viajante hotels Tokyo 2026-10-12 2026-10-16 --source google --top 3
 """
 
 
@@ -744,7 +744,7 @@ def _run_airports(args: argparse.Namespace) -> int:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Local Google Flights and hotel search (EUR). "
+            "Local Google Flights and hotel search. Any IATA pair; quotes in EUR. "
             "One-way, packaged round-trip, or multi-city; Booking or Google Hotels."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -754,7 +754,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     flights = sub.add_parser(
         "flights",
-        help="Google Flights search (one-way, packaged RT, or multi-city; EUR)",
+        help="Google Flights search (one-way, packaged RT, or multi-city; quotes in EUR)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=FLIGHTS_EXAMPLES,
     )
@@ -878,7 +878,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     hotels = sub.add_parser(
         "hotels",
-        help="Hotel search (EUR, total-stay). Default Booking; --source google is HTTP.",
+        help="Hotel search (total-stay, quoted in EUR). Default Booking; --source google is HTTP.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=HOTELS_EXAMPLES,
     )
@@ -947,7 +947,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     dates = sub.add_parser(
         "dates",
-        help="Cheapest fare per day for one route (EUR, compact table)",
+        help="Cheapest fare per day for one route (compact table, quoted in EUR)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=DATES_EXAMPLES,
     )
@@ -998,7 +998,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     explore = sub.add_parser(
         "explore",
-        help="Cheap destinations from one origin (EUR shortlist)",
+        help="Cheap destinations from one origin (quoted in EUR)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=EXPLORE_EXAMPLES,
     )

@@ -521,8 +521,8 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertEqual(code, 0)
         help_text = buffer.getvalue()
         self.assertIn("Examples:", help_text)
-        self.assertIn("viajante flights MAD-BCN", help_text)
-        self.assertIn("MAD-OPO:2026-10-09:2026-10-12", help_text)
+        self.assertIn("viajante flights JFK-LHR", help_text)
+        self.assertIn("JFK-NRT:2026-10-09:2026-10-20", help_text)
         self.assertIn("--trip", help_text)
         self.assertIn("--sort", help_text)
         self.assertIn("--fetch", help_text)
@@ -547,7 +547,7 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("explore", help_text)
         self.assertIn("airports", help_text)
         self.assertIn("Examples:", help_text)
-        self.assertIn("viajante flights MAD-BCN", help_text)
+        self.assertIn("viajante flights JFK-LHR", help_text)
 
 
 def _sample_hotel_report(

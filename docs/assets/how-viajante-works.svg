@@ -1,33 +1,52 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
-  <title>HTTP or Chromium</title>
-  <desc>You or an agent pass a query. The CLI validates it. Flights sweep and Google Hotels use HTTP with no pause. Flight detail and Booking.com use local Chromium and sleep 4.5 to 6 seconds. Results are typed EUR. Cookies stay in the local state directory.</desc>
-  <rect x="1" y="1" width="1198" height="298" rx="12" fill="#F6F0E4" stroke="#E6DCC9" stroke-width="2"/>
-
-  <text x="56" y="52" fill="#172A33" font-size="16" font-weight="700">you or agent</text>
-  <path d="M186 46H238" fill="none" stroke="#D75A2B" stroke-width="3" stroke-linecap="round"/>
-  <path d="M244 46l-10 -6v12z" fill="#D75A2B"/>
-  <text x="260" y="52" fill="#172A33" font-size="16" font-weight="700">CLI validates</text>
-  <path d="M408 46H460" fill="none" stroke="#D75A2B" stroke-width="3" stroke-linecap="round"/>
-  <path d="M466 46l-10 -6v12z" fill="#D75A2B"/>
-  <text x="482" y="52" fill="#172A33" font-size="16" font-weight="700">typed EUR</text>
-
-  <path d="M56 76H1144" stroke="#E6DCC9" stroke-width="1.5"/>
-
-  <text x="280" y="112" fill="#52636B" font-size="14">HTTP · 0 s</text>
-  <text x="720" y="112" fill="#52636B" font-size="14">Chromium · 4.5-6 s</text>
-  <path d="M56 124H1144" stroke="#E6DCC9" stroke-width="1"/>
-
-  <text x="56" y="172" fill="#52636B" font-size="14">Flights</text>
-  <text x="280" y="168" fill="#172A33" font-size="22" font-weight="700">sweep</text>
-  <text x="280" y="192" fill="#52636B" font-size="15">shopping RPC</text>
-  <text x="720" y="168" fill="#172A33" font-size="22" font-weight="700">detail</text>
-  <text x="720" y="192" fill="#52636B" font-size="15">full cards</text>
-
-  <path d="M56 216H1144" stroke="#E6DCC9" stroke-width="1"/>
-
-  <text x="56" y="252" fill="#52636B" font-size="14">Hotels</text>
-  <text x="280" y="248" fill="#172A33" font-size="22" font-weight="700">Google Hotels</text>
-  <text x="280" y="272" fill="#52636B" font-size="15">stay-total shortlist</text>
-  <text x="720" y="248" fill="#172A33" font-size="22" font-weight="700">Booking.com</text>
-  <text x="720" y="272" fill="#52636B" font-size="15">card evidence</text>
+  <title>How viajante works</title>
+  <desc>Flight or hotel data flows from a user or agent through the viajante CLI and local Chromium to typed price results, with cookies stored in the local state directory.</desc>
+  <rect x="1" y="1" width="1198" height="298" rx="20" fill="#F6F0E4" stroke="#E6DCC9" stroke-width="2"/>
+  <g>
+    <rect x="40" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <rect x="240" y="40" width="40" height="150" rx="8" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <path d="M240 40V190" stroke="#E6DCC9" stroke-width="2" stroke-dasharray="6 8"/>
+    <circle cx="240" cy="40" r="10" fill="#F6F0E4"/>
+    <circle cx="240" cy="190" r="10" fill="#F6F0E4"/>
+    <text x="140" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">YOU OR AGENT</text>
+    <text x="140" y="142" fill="#52636B" font-size="18" text-anchor="middle">route or stay</text>
+  </g>
+  <g>
+    <rect x="340" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <rect x="540" y="40" width="40" height="150" rx="8" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <path d="M540 40V190" stroke="#E6DCC9" stroke-width="2" stroke-dasharray="6 8"/>
+    <circle cx="540" cy="40" r="10" fill="#F6F0E4"/>
+    <circle cx="540" cy="190" r="10" fill="#F6F0E4"/>
+    <text x="440" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">viajante CLI</text>
+    <text x="440" y="142" fill="#52636B" font-size="18" text-anchor="middle">validate + pace</text>
+  </g>
+  <g>
+    <rect x="640" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <rect x="840" y="40" width="40" height="150" rx="8" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <path d="M840 40V190" stroke="#E6DCC9" stroke-width="2" stroke-dasharray="6 8"/>
+    <circle cx="840" cy="40" r="10" fill="#F6F0E4"/>
+    <circle cx="840" cy="190" r="10" fill="#F6F0E4"/>
+    <text x="740" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">LOCAL CHROMIUM</text>
+    <text x="740" y="142" fill="#52636B" font-size="18" text-anchor="middle">Flights + Booking</text>
+  </g>
+  <g>
+    <rect x="940" y="40" width="200" height="150" rx="12" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <rect x="1140" y="40" width="40" height="150" rx="8" fill="#FFFCF6" stroke="#E6DCC9" stroke-width="2"/>
+    <path d="M1140 40V190" stroke="#E6DCC9" stroke-width="2" stroke-dasharray="6 8"/>
+    <circle cx="1140" cy="40" r="10" fill="#F6F0E4"/>
+    <circle cx="1140" cy="190" r="10" fill="#F6F0E4"/>
+    <text x="1040" y="108" fill="#172A33" font-size="20" font-weight="700" text-anchor="middle">TYPED RESULTS</text>
+    <text x="1040" y="142" fill="#52636B" font-size="18" text-anchor="middle">prices + optional JSON</text>
+  </g>
+  <g fill="none" stroke="#D75A2B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M288 115H318"/>
+    <path d="M588 115H618"/>
+    <path d="M888 115H918"/>
+  </g>
+  <g fill="#D75A2B">
+    <path d="M332 115L318 107V123Z"/>
+    <path d="M632 115L618 107V123Z"/>
+    <path d="M932 115L918 107V123Z"/>
+  </g>
+  <text x="600" y="252" fill="#52636B" font-size="18" text-anchor="middle">Cookies stay in your local state directory.</text>
 </svg>

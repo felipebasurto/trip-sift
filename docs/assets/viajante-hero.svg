@@ -1,11 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="260" viewBox="0 0 1200 260" role="img" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
-  <title>viajante</title>
-  <desc>viajante. Flights and hotels from your machine. Prices in EUR. The command is viajante flights MAD-BCN:2026-09-01.</desc>
-  <rect x="1" y="1" width="1198" height="258" rx="12" fill="#F6F0E4" stroke="#E6DCC9" stroke-width="2"/>
-  <text x="56" y="88" fill="#172A33" font-size="56" font-weight="700">viajante</text>
-  <text x="1144" y="88" fill="#52636B" font-size="16" text-anchor="end">EUR</text>
-  <text x="56" y="128" fill="#52636B" font-size="20">Flights and hotels from your machine. No API keys.</text>
-  <rect x="56" y="160" width="1088" height="64" rx="8" fill="#172A33"/>
-  <text x="84" y="200" fill="#F3C7A9" font-size="20" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">$</text>
-  <text x="112" y="200" fill="#FFFCF6" font-size="20" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">viajante flights MAD-BCN:2026-09-01</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <title>viajante local flight and hotel search</title>
+  <desc>A boarding pass with the viajante name and local flight and hotel search commands.</desc>
+  <rect x="1" y="1" width="1198" height="418" rx="28" fill="#F6F0E4" stroke="#E6DCC9" stroke-width="2"/>
+  <path d="M930 0V420" stroke="#E6DCC9" stroke-width="3" stroke-dasharray="10 12"/>
+  <circle cx="930" cy="0" r="15" fill="#F6F0E4"/>
+  <circle cx="930" cy="420" r="15" fill="#F6F0E4"/>
+  <text x="72" y="72" fill="#D75A2B" font-size="20" font-weight="700" letter-spacing="3">CLI LOCAL</text>
+  <text x="72" y="150" fill="#172A33" font-size="72" font-weight="800">viajante</text>
+  <text x="72" y="198" fill="#52636B" font-size="28">Flights + stays. No API keys.</text>
+  <rect x="72" y="258" width="744" height="84" rx="14" fill="#172A33"/>
+  <text x="102" y="311" fill="#F3C7A9" font-size="24" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">$</text>
+  <text x="132" y="311" fill="#FFFCF6" font-size="22" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">viajante flights JFK-NRT:2026-10-12 --fetch sweep</text>
+  <circle cx="1065" cy="112" r="70" fill="none" stroke="#D75A2B" stroke-width="6"/>
+  <path d="M1045 112h44M1069 100l18 12-18 12M1051 108l-10 4 10 4" fill="none" stroke="#D75A2B" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1065" y="226" fill="#52636B" font-size="18" letter-spacing="2" text-anchor="middle">AGENT READY</text>
+  <text x="1065" y="258" fill="#172A33" font-size="26" font-weight="700" text-anchor="middle">ANY IATA</text>
+  <path d="M994 322H1137" stroke="#D75A2B" stroke-width="3" stroke-dasharray="5 8"/>
+  <circle cx="994" cy="322" r="8" fill="#172A33"/>
+  <circle cx="1137" cy="322" r="8" fill="#D75A2B"/>
 </svg>
