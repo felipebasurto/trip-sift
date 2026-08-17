@@ -1,6 +1,9 @@
 <p align="center">
   <img src="docs/assets/viajante-hero.svg" alt="viajante: local flight and hotel search from any IATA pair, no API keys" width="100%">
 </p>
+<p align="center">
+  <img src="docs/assets/viajante-flip.gif" alt="VIAJANTE split-flap wordmark flipping into place" width="80%">
+</p>
 
 viajante searches Google Flights and hotels from your machine. Any IATA pair or city. No API keys, no account. Quotes are requested in EUR so a New York–Tokyo fare and a Sydney–Auckland fare compare.
 
