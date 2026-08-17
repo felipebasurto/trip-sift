@@ -164,7 +164,7 @@ class ExploreCliTests(unittest.TestCase):
         with patch("sys.stdout", buffer):
             code = main(["explore", "--help"])
         self.assertEqual(code, 0)
-        self.assertIn("viajante explore MAD", buffer.getvalue())
+        self.assertIn("viajante explore JFK", buffer.getvalue())
 
 
 if __name__ == "__main__":

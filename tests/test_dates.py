@@ -220,7 +220,7 @@ class DateCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         help_text = buffer.getvalue()
         self.assertIn(str(MAX_DATE_WINDOW_DAYS), help_text)
-        self.assertIn("viajante dates MAD-LHR", help_text)
+        self.assertIn("viajante dates LAX-NRT", help_text)
 
 
 if __name__ == "__main__":
