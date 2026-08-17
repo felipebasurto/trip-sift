@@ -1,17 +1,12 @@
 <p align="center">
-  <img src="docs/assets/viajante-hero.svg" alt="viajante local flight and hotel search" width="100%">
+  <img src="docs/assets/viajante-hero.svg" alt="viajante. Flights and hotels from your machine." width="100%">
 </p>
 
-<p align="center">
-  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-172A33">
-  <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-52636B">
-</p>
+viajante searches Google Flights and Booking.com from your machine. Prices in EUR. No API keys, no account.
 
-Compare flight and hotel prices in EUR from your own machine, with no API keys and no account. Flights have two fetch modes: **sweep** is a fast HTTP shortlist (owned shopping RPC, Chrome TLS session, HTML fallback), **detail** is the Playwright scrape for max evidence. Hotels still use a local Chromium on Booking.com. Offers keep the scraped text next to every parsed number. Query encoding and card parsing are owned by viajante. It is built for scripts and agents that need structured prices, not for browsing.
+The name is Spanish for the travelling salesman. Shortlist a route. Do not brute-force every date and city.
 
-The name is Spanish for the travelling salesman: shortlist routes, don't brute-force every combination.
-
-This is an unofficial project with no affiliation to Google or Booking.com. Either provider can change markup at any time, which may break parsing. Review the [Google Terms of Service](https://policies.google.com/terms), [Booking.com terms](https://www.booking.com/content/terms.html), and your own obligations before use.
+Unofficial, and not affiliated with Google or Booking.com. Either site can change markup and break the parsers. Read the [Google Terms of Service](https://policies.google.com/terms), [Booking.com terms](https://www.booking.com/content/terms.html), and your own obligations before you use this.
 
 ## Install
 
@@ -19,12 +14,28 @@ Needs [uv](https://docs.astral.sh/uv/) and Python 3.10 or newer.
 
 ```bash
 uv sync
+```
+
+Then `uv run viajante`. The lockfile is the dependency graph CI uses. `pip install -e .` works if you install Chromium yourself, and you lose the locked transitive versions.
+
+Chromium is only for `--fetch detail` and Booking hotels:
+
+```bash
 uv run playwright install chromium
 ```
 
-After that, run the CLI with `uv run viajante`. The lockfile (`uv.lock`) pins the exact dependency graph used in CI. A plain `pip install -e .` still works if you prefer pip, but then you must install Chromium yourself and you lose the locked transitive versions.
+Sweep, `dates`, `explore`, and `--source google` do not start a browser.
 
-## Search flights
+Optional MCP extra:
+
+```bash
+uv sync --extra mcp
+uv run viajante-mcp
+```
+
+Five tools. One process lock, so two searches cannot overlap. `lookup_airports` stays unlocked.
+
+## Flights
 
 ```bash
 uv run viajante flights MAD-BCN:2026-09-01 --fetch sweep
@@ -37,9 +48,17 @@ uv run viajante flights MAD-BCN:2026-09-01 --fetch sweep
       131 €  3 hr 55 min  1 stop  14:05 -> 18:00     Air Europa
 ```
 
-One adult, one-way, economy. Up to eight offers per query, ordered by ranked total (fare plus baggage buffer). Vueling is cheaper on fare, but the buffer puts it behind Iberia at 109 € ranked. Pass `--sort fare` to order by cabin fare, `--sort duration` to order by elapsed time, or `--baggage-buffer 0` to rank on fare alone. `--airlines IB,I2`, `--exclude-airlines FR,RK`, `--depart-window 7-12`, `--max-duration 4`, and `--min-layover 1` are local post-filters applied after parse and before `--top`. `MAD-OPO:2026-10-09:2026-10-12` expands to outbound plus return as two one-way queries. `--fetch sweep` is the fast HTTP shortlist: one Chrome TLS session, owned shopping RPC, HTML card parse only if that misses (no Chromium). `--fetch detail` is the full Playwright scrape. `--fetch auto` (default) uses sweep for 3+ queries and detail for 1–2; if sweep comes back empty, blocked, or markup-drifted, viajante falls back to detail once. Nothing is written to disk unless you ask for it.
+One adult, one-way, economy. Up to eight offers, ordered by ranked total. That is fare plus a 70 EUR buffer on known low-cost carriers. Vueling is 39 € on fare. The buffer puts it behind Iberia at 109 € ranked. `--sort fare` or `--baggage-buffer 0` turns that off.
 
-## Cheapest days
+Route grammar is `MAD-BCN:2026-09-01`. Several dates on one route: `MAD-BCN:2026-09-01,2026-09-02`.
+
+`MAD-OPO:2026-10-09:2026-10-12` is outbound plus return as two one-way searches. `--trip rt` on that same grammar is one Google package. `--trip multi` takes two to six `ORIGIN-DEST:DATE` legs as one package. Multi-city detail is not supported yet.
+
+`--fetch sweep` is one Chrome TLS session and viajante's shopping RPC. No Chromium. `--fetch detail` is the Playwright scrape. `--fetch auto` uses sweep for 3 or more queries and detail for 1 or 2. Empty or blocked sweep falls back to detail once for those legs.
+
+A `booking_token` prints a Google Flights itinerary URL. No passenger fields, no booking POST. Nothing is written to disk unless you pass `--save`.
+
+## Dates
 
 ```bash
 uv run viajante dates MAD-LHR --from 2026-09-01 --to 2026-09-30
@@ -52,9 +71,9 @@ uv run viajante dates MAD-LHR --from 2026-09-01 --to 2026-09-30
   2026-09-03       67 €
 ```
 
-One compact table: date → cheapest EUR. The window is at most 31 days. This uses the owned Google Flights date-grid RPC on the same Chrome TLS session as sweep, not N full offer dumps. Airline and stops are omitted when the calendar body does not carry them. If that compact calendar parse misses, viajante prices each day with the shopping sweep and still prints one row per date (`fetch_backend: sweep`). `--fetch sweep` is accepted; `detail` is ignored because this command is HTTP-only.
+One row per day, cheapest EUR. The window is at most 31 days. This uses viajante's date-grid RPC on the same TLS session as sweep. The calendar omits airline and stops when the body does not carry them. If that parse misses, each day is priced with the shopping sweep and still prints one row (`fetch_backend: sweep`). `--fetch detail` is accepted and ignored.
 
-## Cheap destinations
+## Explore
 
 ```bash
 uv run viajante explore MAD --from 2026-09-01 --days 7
@@ -66,18 +85,18 @@ uv run viajante explore MAD --from 2026-09-01 --days 7
        61 €  LIS  Lisbon  Portugal
 ```
 
-Explore asks Google for destinations from one origin, then prices a `--top` shortlist (default 12) with the shopping RPC on `--from`. `--month 2026-09` uses the first of that month. This is the “surprise me from MAD” list, not a brute-force airport matrix.
+Destinations Google lists from that origin, then a priced `--top` shortlist (default 12) on `--from`. `--month 2026-09` uses the first of that month. Do not expand this into an airport matrix.
 
-## Airport lookup
+## Airports
 
 ```bash
 uv run viajante airports london
 uv run viajante airports MAD
 ```
 
-Offline IATA search. `FlightQuery` rejects unknown codes (`XXX` is not an airport). Known three-letter codes still work.
+Offline IATA search. `FlightQuery` rejects unknown codes. `XXX` is not an airport.
 
-## Search hotels
+## Hotels
 
 ```bash
 uv run viajante hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
@@ -97,23 +116,23 @@ uv run viajante hotels Prague 2026-12-04 2026-12-07 --min-rating 8.5
   Raw cards: 40; eligible: 12; shown: 2
 ```
 
-Prices are totals for the whole stay, not per night. Free cancellation is required by default; use `--allow-non-refundable` only when you explicitly want other stays. `--compare-cancellation` runs two sequential searches (with the free-cancellation chip, then without) and prints a joined price table; do not combine it with `--allow-non-refundable`.
+Prices are totals for the whole stay, not per night. Free cancellation is required unless you pass `--allow-non-refundable`. `--compare-cancellation` runs Booking twice, free-cancellation chip on then off, and prints a joined table. Do not combine it with `--allow-non-refundable` or `--source google`.
 
-The CLI does not scrape Kayak, Lastminute, or official hotel sites. For a second opinion on 1–3 finalists, an agent can use the user's browser to Google the property and list whatever sources show up (official site, aggregators, others) without ranking them; those quotes stay outside `--save` JSON.
+`--source google` is the HTTP shortlist. Stay totals include tax. `--min-rating` tops out at 5 on that source. Booking is the default evidence path.
 
-The output separates what you asked for (`Filters`), what Booking was actually told (`Booking chips`), and what each card actually showed (`Cancellation`, `Lodging`, beds), because those can disagree. Note that `--min-rating 8.5` appears under `Filters` but produces no chip: only free cancellation and `--entire-home` are pushed to Booking, and the rating is applied locally to the scraped cards.
+The output separates what you asked for (`Filters`), what the site was told, and what the card showed. Those three can disagree. `--min-rating` is a local filter. Only free cancellation and `--entire-home` are pushed to the provider.
 
-## How it works
+## HTTP or Chromium
 
 <p align="center">
-  <img src="docs/assets/how-viajante-works.svg" alt="viajante data flow from user to typed results" width="100%">
+  <img src="docs/assets/how-viajante-works.svg" alt="Flight sweep and Google Hotels use HTTP. Flight detail and Booking.com use Chromium." width="100%">
 </p>
 
-You or an agent pass a route and dates. The CLI validates the input before any browser starts. A 3+ query flight batch uses HTTP sweep by default: one keep-alive Chrome TLS/HTTP/2 session, compact shopping parse, no 4.5s pause between legs. One or two flight queries, `--fetch detail`, or a sweep fallback uses one local Chromium session with images, media, and fonts blocked. Offers come back ranked, and consent cookies stay in your state directory rather than in this checkout.
+The CLI validates the route before anything starts. HTTP paths reuse one keep-alive session. Chromium paths sleep 4.5 to 6 seconds between queries on purpose. Consent cookies stay in your state directory, not in this checkout.
 
-## Compare dates and save JSON
+## Save JSON
 
-For a cheapest-per-day grid, prefer `viajante dates` (31-day cap, one row per date). A comma list still dumps full offer blocks when you need the cards:
+For a cheapest-per-day grid, prefer `viajante dates`. A comma list still dumps full offer blocks when you need the cards:
 
 ```bash
 uv run viajante dates MAD-BCN --from 2026-09-01 --to 2026-09-14 --save results/dates.viajante.json
@@ -124,63 +143,9 @@ uv run viajante flights \
   --save results/search.viajante.json
 ```
 
-Each `flights` date is searched sequentially and printed as its own block. Progress goes to stderr so you can pipe the table on its own. A 10-date sweep is a few seconds of HTTP. The same batch on `--fetch detail` still sleeps 4.5 to 6 seconds between queries on purpose.
+Each `flights` date is searched sequentially and printed as its own block. Progress goes to stderr so you can pipe the table on its own. A 10-date sweep is a few seconds of HTTP. The same batch on `--fetch detail` still sleeps 4.5 to 6 seconds between queries.
 
-## CLI reference
-
-Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IATA codes and `YYYY-MM-DD` dates, or `ORIGIN-DESTINATION:OUT:BACK` for outbound plus return as two one-way searches. Codes are case-insensitive. You can still pass a return leg as a second route.
-
-| `flights` flag | Default | Behavior |
-|---|---|---|
-| `--max-stops` | `1` | `0` for direct flights only, `1` to allow one stop. |
-| `--adults` | `1` | Number of adults on the search. |
-| `--cabin` | `economy` | `economy`, `premium-economy`, `business`, or `first`. |
-| `--top` | `8` | Offers kept per query after ranking and deduplication. |
-| `--baggage-buffer` | `70` | EUR added to low-cost fares when ranking. `0` ranks on fare alone. |
-| `--sort` | `ranked` | `ranked` uses fare+buffer for `--top`; `fare` uses cabin fare; `duration` uses elapsed time. |
-| `--airlines` | off | Keep only these airline IATA codes (`IB,I2`). Applied after parse, before `--top`. |
-| `--exclude-airlines` | off | Drop these airline IATA codes (`FR,RK`). |
-| `--depart-window` | off | Keep local departure hours in `START-END` inclusive (`6-20`). |
-| `--fetch` | `auto` | `sweep` = owned shopping RPC, Chrome TLS session, HTML fallback; `detail` = Playwright max evidence. `auto` picks sweep for 3+ queries, detail for 1–2. |
-| `--max-layover` | off | Drop 1-stop offers whose layover exceeds this many hours. Nonstops are kept. |
-| `--min-layover` | off | Drop 1-stop offers whose layover is shorter than this many hours. Nonstops are kept. |
-| `--max-duration` | off | Drop offers whose elapsed time exceeds this many hours. |
-| `--save FILE` | off | Write the JSON report atomically. |
-
-| `dates` flag | Default | Behavior |
-|---|---|---|
-| `--from` / `--to` | required | Inclusive departure window. Cap is 31 days. |
-| `--max-stops` / `--adults` / `--cabin` | `1` / `1` / `economy` | Same meaning as `flights`. |
-| `--fetch` | `sweep` | Calendar uses the date-grid RPC. On a compact miss, each day is priced with shopping sweep. `detail` is accepted and ignored. |
-| `--save FILE` | off | Write the calendar JSON atomically. |
-
-| `explore` flag | Default | Behavior |
-|---|---|---|
-| `--from` / `--days` | date / `7` | Outbound date and trip-window label. |
-| `--month` | off | First of `YYYY-MM` plus that month's length. Do not combine with `--from`. |
-| `--top` | `12` | Destinations to price after the explore catalog. |
-| `--save FILE` | off | Write the explore JSON atomically. |
-
-| `hotels` flag | Default | Behavior |
-|---|---|---|
-| `--adults` / `--rooms` | `2` / `1` | Occupancy for the stay. |
-| `--top` | `8` | Stays shown after filtering and ranking. |
-| `--min-rating` | off | Minimum Booking review score, 0 to 10. |
-| `--entire-home` | off | Require entire homes. Cards with unknown property type may remain. |
-| `--allow-non-refundable` | off | Include stays without free cancellation. |
-| `--compare-cancellation` | off | Two sequential searches (free cancellation on, then off) and a joined price table. |
-| `--save FILE` | off | Write the JSON report atomically. |
-
-| Exit code | Meaning |
-|---|---|
-| `0` | Every query finished without a fetch failure, including queries that found nothing eligible. |
-| `1` | The command input is invalid. |
-| `2` | Every query failed. |
-| `3` | Some queries finished and some failed. |
-
-## JSON output
-
-`--save` writes one report per run. Every offer carries the scraped text beside its parsed value, so a better parser can be run over old results.
+`--save` writes one report per run. Every offer keeps the scraped text beside the parsed number.
 
 ```json
 {
@@ -219,7 +184,17 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
           "flight_numbers": ["VY1001"],
           "booking_token": "tok",
           "baggage_buffer_eur": 70,
-          "needs_bag_verify": true
+          "needs_bag_verify": true,
+          "legs": [
+            {
+              "departure": "07:15",
+              "arrival": "08:40",
+              "duration": "1 hr 25 min",
+              "stops": "Nonstop",
+              "segments": [],
+              "layovers": []
+            }
+          ]
         }
       ]
     }
@@ -227,9 +202,63 @@ Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IA
 }
 ```
 
-A failed query replaces `raw_count`, `eligible_count`, and `offers` with `"error": {"code": ..., "message": ...}`. Codes an agent can switch on: `no_results`, `rejected`, `blocked`, `markup_drift`, `fetch_failed`, `browser_unavailable`. Hotel reports follow the same envelope, with `provider`, `price_basis: "total_stay"`, and an `applied` block recording the Booking filters that were actually used. `flight_numbers` and `booking_token` are present when the compact shopping body has them; otherwise they are `null`. No booking flow. Do not invent CO2.
+A failed query replaces `raw_count`, `eligible_count`, and `offers` with `"error": {"code": ..., "message": ...}`. Codes an agent can switch on: `no_results`, `rejected`, `blocked`, `markup_drift`, `fetch_failed`, `browser_unavailable`. Hotel reports use the same envelope, with `provider`, `price_basis: "total_stay"`, and an `applied` block for the filters that were actually sent. `flight_numbers` and `booking_token` are present when the compact shopping body has them. Otherwise they are `null`. Two-stop cards keep layovers on `legs` and leave `layover_city` empty. No booking flow. Do not invent CO2.
 
-## Python API
+## CLI reference
+
+Flight route grammar is `ORIGIN-DESTINATION:DATE[,DATE...]` with three-letter IATA codes and `YYYY-MM-DD` dates, or `ORIGIN-DESTINATION:OUT:BACK` for outbound plus return as two one-way searches. Codes are case-insensitive. You can still pass a return leg as a second route.
+
+| `flights` flag | Default | Behavior |
+|---|---|---|
+| `--max-stops` | `1` | `0` direct only, `1` one stop, `2` two or fewer. |
+| `--trip` | `one-way` | `rt` and `multi` POST one package. Sugar without `--trip` stays two one-ways. |
+| `--adults` | `1` | Adults on the search. |
+| `--cabin` | `economy` | `economy`, `premium-economy`, `business`, or `first`. |
+| `--top` | `8` | Offers kept per query after ranking and deduplication. |
+| `--baggage-buffer` | `70` | EUR added to low-cost fares when ranking. `0` ranks on fare alone. |
+| `--sort` | `ranked` | `ranked` uses fare+buffer for `--top`. `fare` uses cabin fare. `duration` uses elapsed time. |
+| `--airlines` | off | Keep only these airline IATA codes (`IB,I2`). After parse, before `--top`. |
+| `--exclude-airlines` | off | Drop these airline IATA codes (`FR,RK`). |
+| `--depart-window` | off | Keep local departure hours in `START-END` inclusive (`6-20`). |
+| `--fetch` | `auto` | `sweep` is HTTP. `detail` is Playwright. `auto` picks sweep for 3+ queries, detail for 1-2. |
+| `--max-layover` | off | Drop 1-stop offers whose layover exceeds this many hours. Nonstops stay. |
+| `--min-layover` | off | Drop 1-stop offers whose layover is shorter than this many hours. Nonstops stay. |
+| `--max-duration` | off | Drop offers whose elapsed time exceeds this many hours. |
+| `--save FILE` | off | Write the JSON report atomically. |
+
+| `dates` flag | Default | Behavior |
+|---|---|---|
+| `--from` / `--to` | required | Inclusive departure window. Cap is 31 days. |
+| `--max-stops` / `--adults` / `--cabin` | `1` / `1` / `economy` | Same meaning as `flights`. `dates` still caps stops at 1. |
+| `--fetch` | `sweep` | Date-grid RPC. On a compact miss, each day is priced with shopping sweep. `detail` is ignored. |
+| `--save FILE` | off | Write the calendar JSON atomically. |
+
+| `explore` flag | Default | Behavior |
+|---|---|---|
+| `--from` / `--days` | date / `7` | Outbound date and trip-window label. |
+| `--month` | off | First of `YYYY-MM` plus that month's length. Do not combine with `--from`. |
+| `--top` | `12` | Destinations to price after the explore catalog. |
+| `--save FILE` | off | Write the explore JSON atomically. |
+
+| `hotels` flag | Default | Behavior |
+|---|---|---|
+| `--adults` / `--rooms` | `2` / `1` | Occupancy for the stay. |
+| `--top` | `8` | Stays shown after filtering and ranking. |
+| `--min-rating` | off | Minimum review score. Booking is 0 to 10. Google Hotels is 0 to 5. |
+| `--entire-home` | off | Require entire homes. Cards with unknown property type may remain. |
+| `--allow-non-refundable` | off | Include stays without free cancellation. |
+| `--source` | `booking` | `booking` is the Playwright evidence path. `google` is the HTTP shortlist. |
+| `--compare-cancellation` | off | Two sequential Booking searches and a joined price table. |
+| `--save FILE` | off | Write the JSON report atomically. |
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Every query finished without a fetch failure, including queries that found nothing eligible. |
+| `1` | The command input is invalid. |
+| `2` | Every query failed. |
+| `3` | Some queries finished and some failed. |
+
+## Python
 
 ```python
 from datetime import date
@@ -279,14 +308,14 @@ for result in report.queries:
             print(offer.total_price_eur, offer.title)
 ```
 
-`search_flights(..., fetch="auto")` matches the CLI. Sweep does not start Chromium. Hotels still use the same Chromium pacing as the CLI. `search_dates`, `search_explore`, and `lookup_airports` are the same surfaces as the `dates`, `explore`, and `airports` commands.
+`search_flights(..., fetch="auto")` matches the CLI. Sweep does not start Chromium. `search_hotels(..., source="google")` is the HTTP shortlist. Booking still uses the same Chromium pacing as the CLI. `search_dates`, `search_explore`, and `lookup_airports` match the `dates`, `explore`, and `airports` commands.
 
-## Limitations
+## Limits
 
-- Flights are one-way only, and `--max-stops` is `0` or `1`. Adults and cabin are configurable (`--adults`, `--cabin`). Sweep does not use the 4.5s browser delay. There is no flag to shorten detail delays or to parallelize requests.
-- The flight scrape runs in English (`hl=en`) for stable rendered evidence; prices are still EUR. Hotels scrape in Spanish against our own parser.
-- Flight ranking adds a flat estimate for known low-cost carriers, not a fare quote. The low-cost list is partial, so an airline missing from it is not evidence of a bag-inclusive fare. Confirm the checked bag on Google Flights before booking.
-- Hotel cancellation, lodging kind, and bed counts are reported as observed evidence, and `unknown` means the card did not say. `--entire-home` therefore cannot remove every non-home. Confirm the final total and the cancellation terms on Booking.com before booking.
+- Flights default to one-way. `--max-stops` is `0`, `1`, or `2`. `--trip multi` cannot use `--fetch detail` yet. There is no flag to shorten Chromium delays or to parallelize requests.
+- The flight scrape runs in English (`hl=en`). Prices are still EUR. Booking scrapes in Spanish against our own parser. Google Hotels uses English.
+- Flight ranking adds a flat estimate for known low-cost carriers, not a fare quote. The low-cost list is partial. An airline missing from it is not evidence of a bag-inclusive fare. Confirm the checked bag on Google Flights before booking.
+- Hotel cancellation, lodging kind, and bed counts are observed evidence. `unknown` means the card did not say. `--entire-home` therefore cannot remove every non-home. Confirm the final total and the cancellation terms on the site you book.
 - Finding nothing eligible still exits `0` and prints `(no eligible offers)` or `(no eligible stays)`. Widen the filters or check the route.
 - If Chromium is missing you get `browser_unavailable`. Run `uv run playwright install chromium`.
 - After repeated failures, stop for 30 to 60 minutes and retry a small query set.
@@ -310,6 +339,6 @@ uv run ruff check src tests
 
 Fully offline. They never launch Chromium and never touch the network. `tests/test_google_flights.py` pins query encoding and drives synthetic compact shopping bodies plus HTML markup through the owned parsers. CI runs the suite on Python 3.10 through 3.14.
 
-## Privacy boundary
+## Privacy
 
-This tree is the public export of a private trip-planning repo. Do not commit scrapes, personal routes, or browser session files. Saved results (`results/`, `*.viajante.json`), logs, and Playwright artifacts are gitignored, and consent cookies live outside the checkout entirely. Before pushing a fork, check `git status --short` and `git ls-files`.
+This tree is the public export of a private trip-planning repo. Do not commit scrapes, personal routes, or browser session files. Saved results (`results/`, `*.viajante.json`), logs, and Playwright artifacts are gitignored, and consent cookies live outside the checkout. Before pushing a fork, check `git status --short` and `git ls-files`.
