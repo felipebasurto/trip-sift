@@ -24,6 +24,7 @@ from viajante.google_flights_rpc import (
     CompactExplorePlace,
     CompactParseMiss,
     EmptyShoppingResults,
+    RawFlightCard,
     ShoppingRejected,
     build_calendar_request,
     build_explore_request,
@@ -32,7 +33,7 @@ from viajante.google_flights_rpc import (
     parse_explore_body,
     parse_shopping_body,
 )
-from viajante.models import FlightCabin, FlightQuery
+from viajante.models import FlightCabin, FlightQuery, Trip
 from viajante.tfs import encode_tfs
 
 SEARCH_URL = "https://www.google.com/travel/flights"
@@ -91,21 +92,6 @@ CONSENT_SELECTORS = [
 ]
 
 
-@dataclass(frozen=True)
-class RawFlightCard:
-    airline: Optional[str]
-    departure: Optional[str]
-    arrival: Optional[str]
-    duration: Optional[str]
-    stops: Optional[str]
-    price: Optional[str]
-    layover_city: Optional[str] = None
-    layover_hours: Optional[float] = None
-    flight_numbers: Optional[tuple[str, ...]] = None
-    airline_codes: Optional[tuple[str, ...]] = None
-    booking_token: Optional[str] = None
-
-
 class NoFlightsFound(Exception):
     """Google rendered a results page with no priced offers."""
 
@@ -130,13 +116,13 @@ class GoogleFlightsRejected(RuntimeError):
 
 
 def build_search_params(
-    query: FlightQuery,
+    trip: Trip,
     *,
     html_lang: str = SCRAPE_LANGUAGE,
     currency: str = SCRAPE_CURRENCY,
 ) -> dict[str, str]:
     return {
-        "tfs": encode_tfs(query),
+        "tfs": encode_tfs(trip),
         "hl": html_lang,
         "tfu": RESULT_TABS,
         "curr": currency,
@@ -144,13 +130,28 @@ def build_search_params(
 
 
 def build_search_url(
-    query: FlightQuery,
+    trip: Trip,
     *,
     html_lang: str = SCRAPE_LANGUAGE,
     currency: str = SCRAPE_CURRENCY,
 ) -> str:
-    params = build_search_params(query, html_lang=html_lang, currency=currency)
+    params = build_search_params(trip, html_lang=html_lang, currency=currency)
     return f"{SEARCH_URL}?{urlencode(params)}"
+
+
+def build_itinerary_url(
+    booking_token: str,
+    *,
+    html_lang: str = SCRAPE_LANGUAGE,
+    currency: str = SCRAPE_CURRENCY,
+) -> str:
+    token = booking_token.strip()
+    if not token:
+        raise ValueError("booking_token must not be blank")
+    return (
+        f"{SEARCH_URL}?"
+        + urlencode({"hl": html_lang, "curr": currency, "booking_token": token})
+    )
 
 
 def _text_or_none(node) -> Optional[str]:
@@ -405,15 +406,15 @@ class GoogleFlightsHttpSource:
         self._timeout = timeout
         self.config = SimpleNamespace(html_lang=html_lang, currency=currency)
 
-    def fetch(self, query: FlightQuery) -> tuple[RawFlightCard, ...]:
+    def fetch(self, trip: Trip) -> tuple[RawFlightCard, ...]:
         client = self._ensure_client()
         try:
-            return self._fetch_compact(client, query)
+            return self._fetch_compact(client, trip)
         except (GoogleFlightsBlocked, NoFlightsFound, GoogleFlightsRejected):
             raise
         except CompactParseMiss:
             pass
-        url = build_search_url(query, html_lang=self._html_lang, currency=self._currency)
+        url = build_search_url(trip, html_lang=self._html_lang, currency=self._currency)
         html, _final_url = fetch_search_html(url, client=client, timeout=self._timeout)
         return parse_http_flight_cards(html)
 
@@ -438,10 +439,10 @@ class GoogleFlightsHttpSource:
             self._owned_client = None
 
     def _fetch_compact(
-        self, client: SweepHttpClient, query: FlightQuery
+        self, client: SweepHttpClient, trip: Trip
     ) -> tuple[RawFlightCard, ...]:
         url, body = build_shopping_request(
-            query, html_lang=self._html_lang, currency=self._currency
+            trip, html_lang=self._html_lang, currency=self._currency
         )
         try:
             response = client.post(
@@ -456,27 +457,11 @@ class GoogleFlightsHttpSource:
         if response.status >= 400:
             raise CompactParseMiss(f"shopping HTTP {response.status}")
         try:
-            compact = parse_shopping_body(response.text)
+            return parse_shopping_body(response.text)
         except EmptyShoppingResults as exc:
             raise NoFlightsFound() from exc
         except ShoppingRejected as exc:
             raise GoogleFlightsRejected(str(exc)) from exc
-        return tuple(
-            RawFlightCard(
-                airline=card.airline,
-                departure=card.departure,
-                arrival=card.arrival,
-                duration=card.duration,
-                stops=card.stops,
-                price=card.price,
-                layover_city=card.layover_city,
-                layover_hours=card.layover_hours,
-                flight_numbers=card.flight_numbers,
-                airline_codes=card.airline_codes,
-                booking_token=card.booking_token,
-            )
-            for card in compact
-        )
 
     def fetch_calendar(
         self,
@@ -556,11 +541,11 @@ class GoogleFlightsSource:
     def config(self) -> BrowserSessionConfig:
         return self._config
 
-    def fetch(self, query: FlightQuery) -> tuple[RawFlightCard, ...]:
+    def fetch(self, trip: Trip) -> tuple[RawFlightCard, ...]:
         return parse_flight_cards(
             self._fetch_html(
                 build_search_url(
-                    query,
+                    trip,
                     html_lang=self._config.html_lang,
                     currency=self._config.currency,
                 )

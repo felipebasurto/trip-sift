@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import unittest
 from datetime import date
@@ -14,6 +15,7 @@ from viajante.google_flights import (
     GoogleFlightsRejected,
     NoFlightsFound,
     SweepHttpResponse,
+    build_itinerary_url,
     build_search_params,
     build_search_url,
     extract_main_html,
@@ -25,16 +27,23 @@ from viajante.google_flights_rpc import (
     CompactParseMiss,
     EmptyShoppingResults,
     ShoppingRejected,
+    build_search_constraints,
     build_shopping_inner,
     build_shopping_request,
     parse_shopping_body,
+    shopping_stop_code,
 )
-from viajante.models import FlightQuery
+from viajante.models import FlightLeg, FlightQuery, MultiCity, RoundTrip
+from viajante.tfs import _encode_legs, encode_tfs
 
 GOLDEN_TFS_DIRECT = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
 GOLDEN_TFS_ONE_STOP = "GhwSCjIwMjYtMTItMDQoAWoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
+GOLDEN_TFS_TWO_STOP = "GhwSCjIwMjYtMTItMDQoAmoFEgNNQURyBRIDQkNOQgEBSAGYAQI="
 GOLDEN_TFS_TWO_ADULTS = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgIBAUgBmAEC"
 GOLDEN_TFS_BUSINESS = "GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAOYAQI="
+GOLDEN_TFS_ROUND_TRIP = (
+    "GhwSCjIwMjYtMTAtMDkoAWoFEgNNQURyBRIDT1BPGhwSCjIwMjYtMTAtMTIoAWoFEgNPUE9yBRIDTUFEQgEBSAGYAQE="
+)
 GOLDEN_URL_DIRECT = (
     "https://www.google.com/travel/flights?"
     "tfs=GhwSCjIwMjYtMTItMDQoAGoFEgNNQURyBRIDQkNOQgEBSAGYAQI%3D"
@@ -107,6 +116,16 @@ class QueryEncodingTests(unittest.TestCase):
         self.assertEqual(params["hl"], "en")
         self.assertEqual(params["curr"], "EUR")
 
+    def test_booking_token_builds_a_google_flights_url(self) -> None:
+        url = build_itinerary_url("tok")
+        parsed = parse_qs(urlparse(url).query)
+        self.assertEqual(urlparse(url).path, "/travel/flights")
+        self.assertEqual(parsed["hl"], ["en"])
+        self.assertEqual(parsed["curr"], ["EUR"])
+        self.assertEqual(parsed["booking_token"], ["tok"])
+        with self.assertRaises(ValueError):
+            build_itinerary_url("   ")
+
     def test_business_cabin_query_matches_the_golden_tfs(self) -> None:
         params = build_search_params(
             FlightQuery(
@@ -120,6 +139,31 @@ class QueryEncodingTests(unittest.TestCase):
         self.assertEqual(params["tfs"], GOLDEN_TFS_BUSINESS)
         self.assertEqual(params["hl"], "en")
         self.assertEqual(params["curr"], "EUR")
+
+    def test_two_stop_one_way_uses_tfs_field_five_value_two(self) -> None:
+        encoded = _encode_legs(
+            (FlightLeg("MAD", "BCN", date(2026, 12, 4), max_stops=2),),
+            adults=1,
+            cabin="economy",
+            trip_kind=2,
+        )
+        self.assertEqual(encoded, GOLDEN_TFS_TWO_STOP)
+        self.assertIn(b"\x28\x02", base64.b64decode(encoded))
+
+    def test_round_trip_repeats_flight_data_and_sets_trip_kind(self) -> None:
+        trip = RoundTrip("MAD", "OPO", date(2026, 10, 9), date(2026, 10, 12), max_stops=1)
+        self.assertEqual(encode_tfs(trip), GOLDEN_TFS_ROUND_TRIP)
+        self.assertEqual(build_search_params(trip)["tfs"], GOLDEN_TFS_ROUND_TRIP)
+
+    def test_multi_city_tfs_is_gated(self) -> None:
+        trip = MultiCity(
+            (
+                FlightLeg("MAD", "BCN", date(2026, 9, 1)),
+                FlightLeg("BCN", "FCO", date(2026, 9, 3)),
+            )
+        )
+        with self.assertRaises(ValueError):
+            encode_tfs(trip)
 
     def test_html_lang_and_currency_args_reach_url_params(self) -> None:
         params = build_search_params(
@@ -393,6 +437,52 @@ class ShoppingRpcTests(unittest.TestCase):
         self.assertEqual(inner[1][5], 3)
         self.assertEqual(inner[1][6], [2, 0, 0, 0])
 
+    def test_shopping_stop_table_is_not_the_tfs_integer(self) -> None:
+        self.assertEqual(shopping_stop_code(0), 1)
+        self.assertEqual(shopping_stop_code(1), 2)
+        self.assertEqual(shopping_stop_code(2), 3)
+        nonstop = build_shopping_inner(FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=0))
+        self.assertEqual(nonstop[1][13][0][3], 1)
+        two_stop = build_shopping_inner(
+            RoundTrip("MAD", "NRT", date(2026, 10, 1), date(2026, 10, 20), max_stops=2)
+        )
+        self.assertEqual(two_stop[1][13][0][3], 3)
+        self.assertEqual(two_stop[1][13][1][3], 3)
+        self.assertEqual(
+            FlightLeg("MAD", "NRT", date(2026, 10, 1), max_stops=2).max_stops,
+            2,
+        )
+
+    def test_round_trip_shopping_sets_kind_and_return_classifier(self) -> None:
+        trip = RoundTrip("MAD", "OPO", date(2026, 10, 9), date(2026, 10, 12), max_stops=1)
+        inner = build_shopping_inner(trip)
+        self.assertEqual(inner[1][2], 1)
+        outbound, inbound = inner[1][13]
+        self.assertEqual(outbound[14], 3)
+        self.assertEqual(inbound[14], 1)
+        self.assertEqual(outbound[6], "2026-10-09")
+        self.assertEqual(inbound[6], "2026-10-12")
+
+    def test_multi_city_shopping_kind_keeps_outbound_classifier(self) -> None:
+        trip = MultiCity(
+            (
+                FlightLeg("MAD", "BCN", date(2026, 9, 1)),
+                FlightLeg("BCN", "FCO", date(2026, 9, 3)),
+                FlightLeg("FCO", "MAD", date(2026, 9, 6)),
+            )
+        )
+        constraints = build_search_constraints(trip)
+        self.assertEqual(constraints[2], 3)
+        self.assertEqual([segment[14] for segment in constraints[13]], [3, 3, 3])
+
+    def test_selected_flight_lands_on_the_first_segment(self) -> None:
+        pinned = ["tok"]
+        constraints = build_search_constraints(
+            FlightQuery("MAD", "BCN", date(2026, 9, 1)),
+            selected_flight=pinned,
+        )
+        self.assertEqual(constraints[13][0][8], pinned)
+
     def test_request_body_is_f_req_envelope(self) -> None:
         query = FlightQuery("MAD", "OPO", date(2026, 10, 9), max_stops=0)
         url, body = build_shopping_request(query)
@@ -406,6 +496,16 @@ class ShoppingRpcTests(unittest.TestCase):
         self.assertIsNone(envelope[0])
         inner = json.loads(envelope[1])
         self.assertEqual(inner[1][13][0][1], [[["OPO", 0]]])
+
+    def test_journey_list_keeps_outbound_clocks_and_package_price(self) -> None:
+        outbound = _itinerary(airline="Iberia", dep=(8, 0), arr=(9, 10), minutes=70, price=40)[0]
+        inbound = _itinerary(airline="Iberia", dep=(18, 0), arr=(19, 20), minutes=80, price=40)[0]
+        item = [[outbound, inbound], [[None, 199], "tok"]]
+        card = parse_shopping_body(_compact_body(item))[0]
+        self.assertEqual(card.departure, "08:00")
+        self.assertEqual(card.arrival, "09:10")
+        self.assertEqual(card.price, "€199")
+        self.assertEqual(card.booking_token, "tok")
 
     def test_compact_body_yields_raw_card_fields(self) -> None:
         body = _compact_body(

@@ -6,25 +6,40 @@ import random
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional, Protocol, Sequence, Tuple
+from typing import Callable, Literal, Optional, Protocol, Sequence, Tuple
 
 from viajante.booking import (
     BookingHotelsSource,
     BookingResultsTimeout,
-    HotelPage,
-    RawHotelCard,
-    build_applied_filters,
+)
+from viajante.booking import (
+    build_applied_filters as build_booking_filters,
+)
+from viajante.google_hotels import (
+    GoogleHotelsSource,
+)
+from viajante.google_hotels import (
+    build_applied_filters as build_google_filters,
+)
+from viajante.google_hotels_rpc import (
+    EmptyHotelResults,
+    HotelsBlocked,
+    HotelsParseMiss,
+    HotelsRejected,
 )
 from viajante.models import (
     AppliedHotelFilters,
     CancellationEvidence,
     HotelOffer,
+    HotelPage,
+    HotelProvider,
     HotelQuery,
     HotelQueryFailure,
     HotelQueryResult,
     HotelQuerySuccess,
     HotelSearchReport,
     PropertyTypeEvidence,
+    RawHotelCard,
     SearchError,
     SearchErrorCode,
 )
@@ -34,6 +49,7 @@ from viajante.orchestration import (
     classify_failure,
     inter_query_delay_seconds,
     retry_backoff_seconds,
+    sweep_inter_query_delay_seconds,
 )
 from viajante.parsers import (
     parse_cancellation_evidence,
@@ -138,6 +154,31 @@ def _rank_offers(
     return _sorted_deduplicated_offers(offers)[:top]
 
 
+def _classify_hotel_failure(exc: BaseException, *, provider: HotelProvider) -> SearchError:
+    if isinstance(exc, EmptyHotelResults):
+        return SearchError(
+            code=SearchErrorCode.NO_RESULTS,
+            message="Google Hotels returned no stays for this search.",
+        )
+    if isinstance(exc, HotelsRejected):
+        return SearchError(
+            code=SearchErrorCode.REJECTED,
+            message="Google Hotels rejected this search.",
+        )
+    if isinstance(exc, HotelsBlocked):
+        return SearchError(
+            code=SearchErrorCode.BLOCKED,
+            message="Google Hotels blocked the sweep.",
+        )
+    if isinstance(exc, HotelsParseMiss):
+        return SearchError(
+            code=SearchErrorCode.MARKUP_DRIFT,
+            message="Google Hotels compact parse missed.",
+        )
+    label = "Google Hotels" if provider == "google-hotels" else "Booking.com"
+    return classify_failure(exc, provider=label)
+
+
 def _run_search(
     queries: Sequence[HotelQuery],
     *,
@@ -149,12 +190,17 @@ def _run_search(
     html_lang: str = "es",
     currency: str = "EUR",
     progress: Optional[Callable[[str], None]] = None,
+    provider: HotelProvider = "booking.com",
+    applied_filters: Optional[Callable[..., AppliedHotelFilters]] = None,
+    delay_seconds: Optional[Callable[[random.Random], float]] = None,
 ) -> HotelSearchReport:
     if not queries:
         raise ValueError("at least one query is required")
     if top <= 0:
         raise ValueError("top must be positive")
 
+    build_filters = applied_filters or build_booking_filters
+    delay = delay_seconds or inter_query_delay_seconds
     report_progress = progress or (lambda _: None)
     results: list[HotelQueryResult] = []
     fetch_limit = max(top * 3, 24)
@@ -163,7 +209,7 @@ def _run_search(
             f"[{index + 1}/{len(queries)}] {query.location} "
             f"{query.check_in.isoformat()} -> {query.check_out.isoformat()}"
         )
-        applied = build_applied_filters(query, html_lang=html_lang, currency=currency)
+        applied = build_filters(query, html_lang=html_lang, currency=currency)
         outcome: Optional[HotelQueryResult] = None
         failure: Optional[SearchError] = None
         for attempt in range(MAX_ATTEMPTS):
@@ -187,32 +233,41 @@ def _run_search(
                 )
                 break
             except Exception as exc:
-                failure = classify_failure(exc, provider="Booking.com")
+                failure = _classify_hotel_failure(exc, provider=provider)
                 source.reset()
                 if failure.code in NON_RETRIABLE_CODES or isinstance(exc, BookingResultsTimeout):
                     break
                 if attempt + 1 < MAX_ATTEMPTS:
                     sleep(retry_backoff_seconds(attempt, random_gen))
         if outcome is None:
+            default_message = (
+                "Google Hotels search failed."
+                if provider == "google-hotels"
+                else "Booking.com hotel search failed."
+            )
             outcome = HotelQueryFailure(
                 query=query,
                 applied=applied,
                 error=failure
                 or SearchError(
                     code=SearchErrorCode.FETCH_FAILED,
-                    message="Booking.com hotel search failed.",
+                    message=default_message,
                 ),
             )
             report_progress(f"  {outcome.error.code.value}: {outcome.error.message}")
         results.append(outcome)
         if index + 1 < len(queries):
-            sleep(inter_query_delay_seconds(random_gen))
+            sleep(delay(random_gen))
     return HotelSearchReport(
         searched_at=now(),
         queries=tuple(results),
         locale=html_lang,
         currency=currency,
+        provider=provider,
     )
+
+
+HotelSourceName = Literal["booking", "google"]
 
 
 def search_hotels(
@@ -220,26 +275,41 @@ def search_hotels(
     *,
     top: int = 8,
     progress: Optional[Callable[[str], None]] = None,
+    source: HotelSourceName = "booking",
 ) -> HotelSearchReport:
     if not queries:
         raise ValueError("at least one query is required")
     if top <= 0:
         raise ValueError("top must be positive")
-    source = BookingHotelsSource(default_state_dir())
+    if source == "google":
+        hotel_source: _HotelSource = GoogleHotelsSource()
+        provider: HotelProvider = "google-hotels"
+        applied_filters = build_google_filters
+        delay_seconds = sweep_inter_query_delay_seconds
+    elif source == "booking":
+        hotel_source = BookingHotelsSource(default_state_dir())
+        provider = "booking.com"
+        applied_filters = build_booking_filters
+        delay_seconds = inter_query_delay_seconds
+    else:
+        raise ValueError("source must be booking or google")
     try:
         return _run_search(
             queries,
             top=top,
-            source=source,
+            source=hotel_source,
             sleep=time.sleep,
             random_gen=random.Random(),
             now=lambda: datetime.now(timezone.utc),
-            html_lang=source.config.html_lang,
-            currency=source.config.currency,
+            html_lang=hotel_source.config.html_lang,  # type: ignore[attr-defined]
+            currency=hotel_source.config.currency,  # type: ignore[attr-defined]
             progress=progress,
+            provider=provider,
+            applied_filters=applied_filters,
+            delay_seconds=delay_seconds,
         )
     finally:
-        source.close()
+        hotel_source.close()
 
 
 def write_hotel_report_atomic(

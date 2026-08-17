@@ -4,7 +4,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -52,8 +52,9 @@ def _offer(
     price_eur: float = 129.0,
     baggage_buffer_eur: int = 0,
     needs_bag_verify: bool = False,
-    layover_city: Optional[str] = None,
+        layover_city: Optional[str] = None,
     layover_hours: Optional[float] = None,
+    booking_token: Optional[str] = None,
 ) -> FlightOffer:
     return FlightOffer(
         airline=airline,
@@ -69,6 +70,7 @@ def _offer(
         layover_hours=layover_hours,
         baggage_buffer_eur=baggage_buffer_eur,
         needs_bag_verify=needs_bag_verify,
+        booking_token=booking_token,
     )
 
 
@@ -107,6 +109,13 @@ class CliTests(unittest.TestCase):
                 code = main(["flights", ROUTE, "--max-stops", "3"])
             self.assertEqual(code, 1)
             search.assert_not_called()
+
+    def test_max_stops_two_reaches_search(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                code = main(["flights", ROUTE, "--max-stops", "2"])
+        self.assertEqual(code, 0)
+        self.assertEqual(search.call_args.args[0][0].max_stops, 2)
 
     def test_prints_results(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()):
@@ -264,6 +273,12 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("…", output)
         self.assertNotIn("A" * 41, output)
 
+    def test_booking_token_prints_a_google_flights_url(self) -> None:
+        output = _rendered(_report(_offer(booking_token="tok")))
+        self.assertIn("https://www.google.com/travel/flights", output)
+        self.assertIn("booking_token=tok", output)
+        self.assertNotIn("https://www.google.com/travel/flights", _rendered(_report(_offer())))
+
     def test_flight_success_prints_eligible_counts(self) -> None:
         output = _rendered(_report(_offer()))
         self.assertIn("Raw: 3; eligible: 1; shown: 1", output)
@@ -375,6 +390,39 @@ class ReportRenderingTests(unittest.TestCase):
                 main(["flights", ROUTE])
         self.assertEqual(search.call_args.kwargs["fetch"], "auto")
 
+    def test_trip_rt_and_multi_reject_bad_grammar(self) -> None:
+        cases = (
+            ["flights", "--trip", "rt", "MAD-BCN:2026-09-01"],
+            ["flights", "--trip", "multi", "MAD-BCN:2026-09-01"],
+        )
+        for argv in cases:
+            with self.subTest(argv=argv):
+                stderr = io.StringIO()
+                with patch("viajante.cli.search_flights") as search:
+                    with redirect_stderr(stderr):
+                        code = main(argv)
+                self.assertEqual(code, 1)
+                self.assertTrue(stderr.getvalue().startswith("error:"))
+                search.assert_not_called()
+
+    def test_trip_rt_reaches_search_as_one_package(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                code = main(
+                    ["flights", "--trip", "rt", "MAD-OPO:2026-10-09:2026-10-12", "--fetch", "sweep"]
+                )
+        self.assertEqual(code, 0)
+        trips = search.call_args.args[0]
+        self.assertEqual(len(trips), 1)
+        self.assertEqual(type(trips[0]).__name__, "RoundTrip")
+
+    def test_trip_one_way_keeps_rt_sugar(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                code = main(["flights", "--trip", "one-way", "MAD-OPO:2026-10-09:2026-10-12"])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(search.call_args.args[0]), 2)
+
     def test_rt_sugar_builds_return_leg(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()) as search:
             with patch("viajante.cli._print_report"):
@@ -435,6 +483,7 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("Examples:", help_text)
         self.assertIn("viajante flights MAD-BCN", help_text)
         self.assertIn("MAD-OPO:2026-10-09:2026-10-12", help_text)
+        self.assertIn("--trip", help_text)
         self.assertIn("--sort", help_text)
         self.assertIn("--fetch", help_text)
         self.assertIn("--fetch sweep", help_text)
@@ -524,11 +573,15 @@ class PublicApiTests(unittest.TestCase):
                 "CancellationEvidence",
                 "DateCalendarReport",
                 "ExploreReport",
+                "FlightLeg",
                 "FlightQuery",
                 "HotelQuery",
                 "HotelSearchReport",
+                "MultiCity",
                 "PropertyTypeEvidence",
+                "RoundTrip",
                 "SearchReport",
+                "Trip",
                 "lookup_airports",
                 "search_dates",
                 "search_explore",
@@ -795,6 +848,48 @@ class HotelCliTests(unittest.TestCase):
                 self.assertFalse(query.free_cancellation)
                 self.assertFalse(query.entire_home)
                 self.assertIsNone(query.min_rating)
+
+    def test_google_source_reaches_search(self) -> None:
+        with patch("viajante.cli.search_hotels", return_value=_sample_hotel_report()) as search:
+            with patch("viajante.cli._print_hotel_report"):
+                code = main(
+                    ["hotels", "Prague", "2026-12-04", "2026-12-07", "--source", "google"]
+                )
+        self.assertEqual(code, 0)
+        self.assertEqual(search.call_args.kwargs["source"], "google")
+
+    def test_google_source_rejects_compare_cancellation(self) -> None:
+        with patch("viajante.cli.search_hotels") as search:
+            code = main(
+                [
+                    "hotels",
+                    "Prague",
+                    "2026-12-04",
+                    "2026-12-07",
+                    "--source",
+                    "google",
+                    "--compare-cancellation",
+                ]
+            )
+        self.assertEqual(code, 1)
+        search.assert_not_called()
+
+    def test_google_source_rejects_min_rating_above_five(self) -> None:
+        with patch("viajante.cli.search_hotels") as search:
+            code = main(
+                [
+                    "hotels",
+                    "Prague",
+                    "2026-12-04",
+                    "2026-12-07",
+                    "--source",
+                    "google",
+                    "--min-rating",
+                    "8.5",
+                ]
+            )
+        self.assertEqual(code, 1)
+        search.assert_not_called()
 
     def test_validation_before_search(self) -> None:
         cases = [

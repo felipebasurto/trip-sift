@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import viajante.hotels as hotels_module
 from viajante.booking import BookingResultsTimeout, HotelPage, RawHotelCard
+from viajante.google_hotels_rpc import EmptyHotelResults, HotelsParseMiss
 from viajante.hotels import (
     _is_eligible,
     _normalize_card,
@@ -576,13 +577,92 @@ class HotelOrchestrationTests(unittest.TestCase):
         self.assertEqual(source.fetch_calls, [])
 
     def test_search_validates_before_source_construction(self) -> None:
-        with patch("viajante.hotels.BookingHotelsSource") as source_class:
+        with (
+            patch("viajante.hotels.BookingHotelsSource") as booking,
+            patch("viajante.hotels.GoogleHotelsSource") as google,
+        ):
             with self.assertRaises(ValueError):
                 search_hotels(())
             with self.assertRaises(ValueError):
                 search_hotels((query(),), top=0)
+            with self.assertRaises(ValueError):
+                search_hotels((query(),), source="bing")  # type: ignore[arg-type]
 
-        source_class.assert_not_called()
+        booking.assert_not_called()
+        google.assert_not_called()
+
+    def test_google_source_sets_provider_and_skips_browser_delay(self) -> None:
+        source = FakeSource([HotelPage(cards=()), HotelPage(cards=())])
+        sleeps: List[float] = []
+        report = _run_search(
+            (query(), query()),
+            top=1,
+            source=source,
+            sleep=sleeps.append,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10, 10, 0, 0),
+            html_lang="en",
+            provider="google-hotels",
+            applied_filters=lambda query, **_: AppliedHotelFilters(
+                chips=("free_cancellation=1",),
+                url="https://www.google.com/travel/search",
+            ),
+            delay_seconds=lambda _: 0.0,
+        )
+        self.assertEqual(report.provider, "google-hotels")
+        self.assertEqual(report.locale, "en")
+        self.assertEqual(sleeps, [0.0])
+        self.assertNotEqual(report.provider, "booking.com")
+
+    def test_google_parse_miss_is_not_retried(self) -> None:
+        source = FakeSource([HotelsParseMiss("no wrb.fr hotel payload")])
+        sleeps: List[float] = []
+        report = _run_search(
+            (query(),),
+            top=1,
+            source=source,
+            sleep=sleeps.append,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10, 10, 0, 0),
+            provider="google-hotels",
+        )
+        self.assertEqual(len(source.fetch_calls), 1)
+        self.assertEqual(sleeps, [])
+        result = report.queries[0]
+        self.assertIsInstance(result, HotelQueryFailure)
+        assert isinstance(result, HotelQueryFailure)
+        self.assertEqual(result.error.code, SearchErrorCode.MARKUP_DRIFT)
+
+    def test_google_empty_is_not_retried(self) -> None:
+        source = FakeSource([EmptyHotelResults()])
+        report = _run_search(
+            (query(),),
+            top=1,
+            source=source,
+            sleep=lambda _: None,
+            random_gen=Random(0),
+            now=lambda: datetime(2026, 8, 10, 10, 0, 0),
+            provider="google-hotels",
+        )
+        self.assertEqual(len(source.fetch_calls), 1)
+        result = report.queries[0]
+        self.assertIsInstance(result, HotelQueryFailure)
+        assert isinstance(result, HotelQueryFailure)
+        self.assertEqual(result.error.code, SearchErrorCode.NO_RESULTS)
+
+    def test_search_google_uses_google_source(self) -> None:
+        source = FakeSource([HotelPage(cards=())])
+        source.config = SimpleNamespace(html_lang="en", currency="EUR")
+        with (
+            patch("viajante.hotels.GoogleHotelsSource", return_value=source),
+            patch("viajante.hotels.BookingHotelsSource") as booking,
+            patch("viajante.hotels.time.sleep"),
+        ):
+            report = search_hotels((query(),), source="google")
+        booking.assert_not_called()
+        self.assertTrue(source.closed)
+        self.assertEqual(report.provider, "google-hotels")
+        self.assertEqual(report.locale, "en")
 
     def test_search_always_closes_source(self) -> None:
         source = FakeSource([RuntimeError("blocked")] * MAX_ATTEMPTS)

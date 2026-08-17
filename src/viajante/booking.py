@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 from viajante.browser import BrowserSessionConfig, ChromiumSession
-from viajante.models import AppliedHotelFilters, HotelQuery
+from viajante.models import AppliedHotelFilters, HotelPage, HotelQuery, RawHotelCard
 from viajante.storage import write_text_atomic
 
 BOOKING_SEARCH_URL = "https://www.booking.com/searchresults.html"
@@ -45,21 +44,6 @@ FAILURE_META_NAME = "booking-last-failure.txt"
 
 class BookingResultsTimeout(TimeoutError):
     """Cards or empty state never appeared; likely consent, challenge, or markup drift."""
-
-
-@dataclass(frozen=True)
-class RawHotelCard:
-    title: str
-    address: Optional[str]
-    total_price: str
-    rating: Optional[str]
-    details: str
-    link: Optional[str]
-
-
-@dataclass(frozen=True)
-class HotelPage:
-    cards: Tuple[RawHotelCard, ...]
 
 
 def build_applied_filters(

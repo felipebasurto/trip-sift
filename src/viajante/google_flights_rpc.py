@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
-from viajante.models import FlightCabin, FlightQuery
+from viajante.models import FlightCabin, FlightQuery, MultiCity, RoundTrip, Trip
 
 SHOPPING_RESULTS_URL = (
     "https://www.google.com/_/FlightsFrontendUi/data/"
@@ -31,7 +31,13 @@ _SEAT: Mapping[FlightCabin, int] = {
     "first": 4,
 }
 _TRIP_ONE_WAY = 2
+_TRIP_ROUND_TRIP = 1
+_TRIP_MULTI_CITY = 3
+_SEGMENT_OUTBOUND = 3
+_SEGMENT_RETURN = 1
 _ANTI_XSSI = ")]}'"
+# viajante max_stops -> shopping segment[3]. TFS field 5 stays the viajante integer.
+_SHOPPING_STOPS: Mapping[int, int] = {0: 1, 1: 2, 2: 3}
 
 
 class CompactParseMiss(ValueError):
@@ -47,7 +53,7 @@ class ShoppingRejected(Exception):
 
 
 @dataclass(frozen=True)
-class CompactFlightCard:
+class RawFlightCard:
     airline: Optional[str]
     departure: Optional[str]
     arrival: Optional[str]
@@ -74,36 +80,67 @@ class CompactExplorePlace:
     country: Optional[str]
 
 
-def build_search_constraints(
+def shopping_stop_code(max_stops: int) -> int:
+    try:
+        return _SHOPPING_STOPS[max_stops]
+    except KeyError:
+        raise ValueError("max_stops must be 0, 1, or 2") from None
+
+
+def _shopping_trip_kind(trip: Trip) -> int:
+    if isinstance(trip, RoundTrip):
+        return _TRIP_ROUND_TRIP
+    if isinstance(trip, MultiCity):
+        return _TRIP_MULTI_CITY
+    return _TRIP_ONE_WAY
+
+
+def _segment_classifier(trip: Trip, index: int) -> int:
+    if isinstance(trip, RoundTrip) and index == 1:
+        return _SEGMENT_RETURN
+    return _SEGMENT_OUTBOUND
+
+
+def _shopping_segment(
     *,
     origin: str,
     destination: Optional[str],
     departure_date: date,
-    adults: int,
-    cabin: FlightCabin,
+    max_stops: int,
+    classifier: int = _SEGMENT_OUTBOUND,
+    selected_flight: Any = None,
 ) -> list[Any]:
     dest_field: Any = [[[destination, 0]]] if destination else []
-    flight = [
+    return [
         [[[origin, 0]]],
         dest_field,
         None,
-        _TRIP_ONE_WAY,
+        shopping_stop_code(max_stops),
         None,
         None,
         departure_date.isoformat(),
         None,
+        selected_flight,
         None,
         None,
         None,
         None,
         None,
-        None,
-        3,
+        classifier,
     ]
+
+
+def _constraints_from_segments(
+    segments: list[list[Any]],
+    *,
+    adults: int,
+    cabin: FlightCabin,
+    trip_kind: int = _TRIP_ONE_WAY,
+) -> list[Any]:
     return [
         None,
         None,
-        2,
+        trip_kind,
         None,
         [],
         _SEAT[cabin],
@@ -114,7 +151,7 @@ def build_search_constraints(
         None,
         None,
         None,
-        [flight],
+        segments,
         None,
         None,
         None,
@@ -122,16 +159,33 @@ def build_search_constraints(
     ]
 
 
-def build_shopping_inner(query: FlightQuery, token: Optional[str] = None) -> list[Any]:
+def build_search_constraints(
+    trip: Trip,
+    *,
+    selected_flight: Any = None,
+) -> list[Any]:
+    return _constraints_from_segments(
+        [
+            _shopping_segment(
+                origin=leg.origin,
+                destination=leg.destination,
+                departure_date=leg.departure_date,
+                max_stops=leg.max_stops,
+                classifier=_segment_classifier(trip, index),
+                selected_flight=selected_flight if index == 0 else None,
+            )
+            for index, leg in enumerate(trip.legs)
+        ],
+        adults=trip.adults,
+        cabin=trip.cabin,
+        trip_kind=_shopping_trip_kind(trip),
+    )
+
+
+def build_shopping_inner(trip: Trip, token: Optional[str] = None) -> list[Any]:
     return [
         [None, None, None, token],
-        build_search_constraints(
-            origin=query.origin,
-            destination=query.destination,
-            departure_date=query.departure_date,
-            adults=query.adults,
-            cabin=query.cabin,
-        ),
+        build_search_constraints(trip),
         0,
         1,
         0,
@@ -159,13 +213,13 @@ def _rpc_body(inner: list[Any]) -> str:
 
 
 def build_shopping_request(
-    query: FlightQuery,
+    trip: Trip,
     *,
     html_lang: str = "en",
     currency: str = "EUR",
 ) -> tuple[str, str]:
     url = f"{SHOPPING_RESULTS_URL}?{urlencode(_rpc_params(html_lang, currency))}"
-    return url, _rpc_body(build_shopping_inner(query))
+    return url, _rpc_body(build_shopping_inner(trip))
 
 
 def build_calendar_inner(
@@ -173,13 +227,7 @@ def build_calendar_inner(
     start: date,
     end: date,
 ) -> list[Any]:
-    constraints = build_search_constraints(
-        origin=query.origin,
-        destination=query.destination,
-        departure_date=query.departure_date,
-        adults=query.adults,
-        cabin=query.cabin,
-    )
+    constraints = build_search_constraints(query)
     return [None, constraints, [start.isoformat(), end.isoformat()]]
 
 
@@ -202,10 +250,15 @@ def build_explore_inner(
     adults: int = 1,
     cabin: FlightCabin = "economy",
 ) -> list[Any]:
-    constraints = build_search_constraints(
-        origin=origin,
-        destination=None,
-        departure_date=departure_date,
+    constraints = _constraints_from_segments(
+        [
+            _shopping_segment(
+                origin=origin,
+                destination=None,
+                departure_date=departure_date,
+                max_stops=1,
+            )
+        ],
         adults=adults,
         cabin=cabin,
     )
@@ -233,7 +286,7 @@ SHOPPING_POST_HEADERS = {
 }
 
 
-def parse_shopping_body(text: str) -> tuple[CompactFlightCard, ...]:
+def parse_shopping_body(text: str) -> tuple[RawFlightCard, ...]:
     if _is_shopping_rejected(text):
         raise ShoppingRejected(
             "Google Flights rejected this route or date (unknown airport or invalid query)."
@@ -339,10 +392,7 @@ def _iter_group(group: object) -> list[Any]:
     return [item for item in group if _looks_like_itinerary(item)]
 
 
-def _looks_like_itinerary(item: object) -> bool:
-    if not isinstance(item, list) or len(item) < 2:
-        return False
-    flight = item[0]
+def _looks_like_flight(flight: object) -> bool:
     if not isinstance(flight, list) or len(flight) < 10:
         return False
     airlines = flight[1]
@@ -353,14 +403,44 @@ def _looks_like_itinerary(item: object) -> bool:
     return isinstance(flight[9], int)
 
 
-def _itinerary_to_card(item: list[Any]) -> Optional[CompactFlightCard]:
-    flight = item[0]
+def _journey_flights(head: object) -> Optional[list[Any]]:
+    if not isinstance(head, list) or not head:
+        return None
+    flights = [item for item in head if _looks_like_flight(item)]
+    if len(flights) >= 2:
+        return flights
+    return None
+
+
+def _looks_like_itinerary(item: object) -> bool:
+    if not isinstance(item, list) or len(item) < 2:
+        return False
+    head = item[0]
+    if _looks_like_flight(head):
+        return True
+    return _journey_flights(head) is not None
+
+
+def _primary_flight(item: list[Any]) -> Optional[list[Any]]:
+    head = item[0]
+    if _looks_like_flight(head):
+        return head
+    flights = _journey_flights(head)
+    if flights is None:
+        return None
+    return flights[0]
+
+
+def _itinerary_to_card(item: list[Any]) -> Optional[RawFlightCard]:
+    flight = _primary_flight(item)
+    if flight is None:
+        return None
     airlines = [name for name in flight[1] if isinstance(name, str)]
     price = _price_text(item[1])
     if price is None:
         return None
     layover_city, layover_hours = _layover_from_flight(flight)
-    return CompactFlightCard(
+    return RawFlightCard(
         airline=", ".join(airlines) or None,
         departure=_format_clock(flight[5]) or _clock_from_leg(flight[2], 0, 8),
         arrival=_format_clock(flight[8]) or _clock_from_leg(flight[2], -1, 10),

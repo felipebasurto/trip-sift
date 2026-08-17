@@ -10,6 +10,44 @@ from typing import Literal, Mapping, Optional, Tuple, Union
 from viajante.airports import is_known_iata
 
 FlightCabin = Literal["economy", "premium-economy", "business", "first"]
+_CABINS: tuple[FlightCabin, ...] = ("economy", "premium-economy", "business", "first")
+
+
+def _normalize_iata(code: str, *, role: str) -> str:
+    normalized = code.strip().upper()
+    if len(normalized) != 3 or not normalized.isalpha():
+        raise ValueError(f"invalid {role} IATA code: {code!r}")
+    if not is_known_iata(normalized):
+        raise ValueError(f"unknown {role} IATA code: {code!r}")
+    return normalized
+
+
+def _require_adults(adults: int) -> None:
+    if adults < 1:
+        raise ValueError("adults must be at least 1")
+
+
+def _require_cabin(cabin: FlightCabin) -> None:
+    if cabin not in _CABINS:
+        raise ValueError(f"invalid cabin: {cabin!r}")
+
+
+@dataclass(frozen=True)
+class FlightLeg:
+    origin: str
+    destination: str
+    departure_date: date
+    max_stops: int = 1
+
+    def __post_init__(self) -> None:
+        origin = _normalize_iata(self.origin, role="origin")
+        destination = _normalize_iata(self.destination, role="destination")
+        if origin == destination:
+            raise ValueError("origin and destination must differ")
+        if self.max_stops not in (0, 1, 2):
+            raise ValueError("max_stops must be 0, 1, or 2")
+        object.__setattr__(self, "origin", origin)
+        object.__setattr__(self, "destination", destination)
 
 
 @dataclass(frozen=True)
@@ -22,24 +60,25 @@ class FlightQuery:
     cabin: FlightCabin = "economy"
 
     def __post_init__(self) -> None:
-        origin = self.origin.strip().upper()
-        destination = self.destination.strip().upper()
-        if len(origin) != 3 or not origin.isalpha():
-            raise ValueError(f"invalid origin IATA code: {self.origin!r}")
-        if len(destination) != 3 or not destination.isalpha():
-            raise ValueError(f"invalid destination IATA code: {self.destination!r}")
-        if not is_known_iata(origin):
-            raise ValueError(f"unknown origin IATA code: {self.origin!r}")
-        if not is_known_iata(destination):
-            raise ValueError(f"unknown destination IATA code: {self.destination!r}")
-        if self.max_stops not in (0, 1):
-            raise ValueError("max_stops must be 0 or 1")
-        if self.adults < 1:
-            raise ValueError("adults must be at least 1")
-        if self.cabin not in ("economy", "premium-economy", "business", "first"):
-            raise ValueError(f"invalid cabin: {self.cabin!r}")
+        origin = _normalize_iata(self.origin, role="origin")
+        destination = _normalize_iata(self.destination, role="destination")
+        if self.max_stops not in (0, 1, 2):
+            raise ValueError("max_stops must be 0, 1, or 2")
+        _require_adults(self.adults)
+        _require_cabin(self.cabin)
         object.__setattr__(self, "origin", origin)
         object.__setattr__(self, "destination", destination)
+
+    @property
+    def legs(self) -> Tuple[FlightLeg, ...]:
+        return (
+            FlightLeg(
+                self.origin,
+                self.destination,
+                self.departure_date,
+                self.max_stops,
+            ),
+        )
 
     def to_dict(self) -> Mapping[str, object]:
         return {
@@ -49,6 +88,106 @@ class FlightQuery:
             "max_stops": self.max_stops,
             "adults": self.adults,
             "cabin": self.cabin,
+        }
+
+
+@dataclass(frozen=True)
+class RoundTrip:
+    origin: str
+    destination: str
+    departure_date: date
+    return_date: date
+    max_stops: int = 1
+    adults: int = 1
+    cabin: FlightCabin = "economy"
+
+    def __post_init__(self) -> None:
+        origin = _normalize_iata(self.origin, role="origin")
+        destination = _normalize_iata(self.destination, role="destination")
+        if origin == destination:
+            raise ValueError("origin and destination must differ")
+        if self.return_date <= self.departure_date:
+            raise ValueError("return_date must be after departure_date")
+        if self.max_stops not in (0, 1, 2):
+            raise ValueError("max_stops must be 0, 1, or 2")
+        _require_adults(self.adults)
+        _require_cabin(self.cabin)
+        object.__setattr__(self, "origin", origin)
+        object.__setattr__(self, "destination", destination)
+
+    @property
+    def legs(self) -> Tuple[FlightLeg, FlightLeg]:
+        return (
+            FlightLeg(self.origin, self.destination, self.departure_date, self.max_stops),
+            FlightLeg(self.destination, self.origin, self.return_date, self.max_stops),
+        )
+
+
+@dataclass(frozen=True)
+class MultiCity:
+    legs: Tuple[FlightLeg, ...]
+    adults: int = 1
+    cabin: FlightCabin = "economy"
+
+    def __post_init__(self) -> None:
+        if len(self.legs) < 2:
+            raise ValueError("multi-city needs at least two legs")
+        dates = [leg.departure_date for leg in self.legs]
+        if dates != sorted(dates):
+            raise ValueError("multi-city dates must be non-decreasing")
+        _require_adults(self.adults)
+        _require_cabin(self.cabin)
+
+
+Trip = Union[FlightQuery, RoundTrip, MultiCity]
+
+
+@dataclass(frozen=True)
+class RawSegment:
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    departure: Optional[str] = None
+    arrival: Optional[str] = None
+    airline: Optional[str] = None
+    flight_number: Optional[str] = None
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "origin": self.origin,
+            "destination": self.destination,
+            "departure": self.departure,
+            "arrival": self.arrival,
+            "airline": self.airline,
+            "flight_number": self.flight_number,
+        }
+
+
+@dataclass(frozen=True)
+class RawLayover:
+    city: Optional[str] = None
+    hours: Optional[float] = None
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {"city": self.city, "hours": self.hours}
+
+
+@dataclass(frozen=True)
+class RawJourneyLeg:
+    departure: Optional[str]
+    arrival: Optional[str]
+    duration: Optional[str] = None
+    stops: Optional[str] = None
+    segments: Tuple[RawSegment, ...] = ()
+    layovers: Tuple[RawLayover, ...] = ()
+
+    def to_dict(self) -> Mapping[str, object]:
+        return {
+            "departure": self.departure,
+            "arrival": self.arrival,
+            "duration": self.duration,
+            "stops": self.stops,
+            "segments": [segment.to_dict() for segment in self.segments],
+            "layovers": [layover.to_dict() for layover in self.layovers],
         }
 
 
@@ -69,6 +208,7 @@ class FlightOffer:
     layover_hours: Optional[float] = None
     flight_numbers: Optional[Tuple[str, ...]] = None
     booking_token: Optional[str] = None
+    legs: Tuple[RawJourneyLeg, ...] = ()
 
     def __post_init__(self) -> None:
         if self.price_eur <= 0:
@@ -77,24 +217,44 @@ class FlightOffer:
             raise ValueError("baggage_buffer_eur must not be negative")
         if self.baggage_buffer_eur > 0 and not self.needs_bag_verify:
             raise ValueError("a baggage buffer only applies to a carrier flagged for verification")
+        if not self.legs:
+            layovers: Tuple[RawLayover, ...] = ()
+            if self.layover_city is not None or self.layover_hours is not None:
+                layovers = (RawLayover(city=self.layover_city, hours=self.layover_hours),)
+            object.__setattr__(
+                self,
+                "legs",
+                (
+                    RawJourneyLeg(
+                        departure=self.departure,
+                        arrival=self.arrival,
+                        duration=self.duration,
+                        stops=self.stops,
+                        layovers=layovers,
+                    ),
+                ),
+            )
 
     def to_dict(self) -> Mapping[str, object]:
+        lead = self.legs[0]
+        two_stop = self.stops_count is not None and self.stops_count >= 2
         return {
             "airline": self.airline,
-            "departure": self.departure,
-            "arrival": self.arrival,
+            "departure": lead.departure,
+            "arrival": lead.arrival,
             "price": self.price,
             "price_eur": self.price_eur,
             "duration": self.duration,
             "duration_hours": self.duration_hours,
             "stops": self.stops,
             "stops_count": self.stops_count,
-            "layover_city": self.layover_city,
-            "layover_hours": self.layover_hours,
+            "layover_city": None if two_stop else self.layover_city,
+            "layover_hours": None if two_stop else self.layover_hours,
             "flight_numbers": list(self.flight_numbers) if self.flight_numbers else None,
             "booking_token": self.booking_token,
             "baggage_buffer_eur": self.baggage_buffer_eur,
             "needs_bag_verify": self.needs_bag_verify,
+            "legs": [leg.to_dict() for leg in self.legs],
         }
 
 
@@ -368,6 +528,24 @@ class HotelQuery:
 
 
 @dataclass(frozen=True)
+class RawHotelCard:
+    title: str
+    address: Optional[str]
+    total_price: str
+    rating: Optional[str]
+    details: str
+    link: Optional[str]
+
+
+@dataclass(frozen=True)
+class HotelPage:
+    cards: Tuple[RawHotelCard, ...]
+
+
+HotelProvider = Literal["booking.com", "google-hotels"]
+
+
+@dataclass(frozen=True)
 class AppliedHotelFilters:
     chips: Tuple[str, ...]
     url: str
@@ -477,7 +655,7 @@ class HotelSearchReport:
     locale: str = "es"
     currency: str = "EUR"
     schema_version: int = field(init=False, default=1)
-    provider: Literal["booking.com"] = field(init=False, default="booking.com")
+    provider: HotelProvider = "booking.com"
     price_basis: Literal["total_stay"] = field(init=False, default="total_stay")
 
     def __post_init__(self) -> None:
