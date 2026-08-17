@@ -11,6 +11,7 @@ from viajante.models import (
     QuerySuccess,
     RawJourneyLeg,
     RawLayover,
+    RoundTrip,
     SearchError,
     SearchErrorCode,
     SearchReport,
@@ -26,6 +27,7 @@ REPORT_KEYS = {
     "queries",
 }
 QUERY_KEYS = {
+    "trip",
     "origin",
     "destination",
     "departure_date",
@@ -174,6 +176,33 @@ class JsonContractTests(unittest.TestCase):
 
     def test_the_whole_report_is_json_serialisable(self) -> None:
         json.loads(json.dumps(self.data, ensure_ascii=False))
+
+    def test_round_trip_query_carries_return_date_and_trip_kind(self) -> None:
+        query = RoundTrip("MAD", "PRG", date(2026, 12, 3), date(2026, 12, 9))
+        offer = FlightOffer(
+            airline="Iberia",
+            departure="07:00",
+            arrival="09:30",
+            price="€209",
+            price_eur=209.0,
+            duration="2 hr 30 min",
+            duration_hours=2.5,
+            stops="Nonstop",
+            stops_count=0,
+            baggage_buffer_eur=0,
+            needs_bag_verify=False,
+            legs=(
+                RawJourneyLeg(departure="07:00", arrival="09:30", duration="2 hr 30 min"),
+                RawJourneyLeg(departure="14:00", arrival="16:20", duration="2 hr 20 min"),
+            ),
+        )
+        data = QuerySuccess(query=query, raw_count=1, eligible_count=1, offers=(offer,)).to_dict()
+        self.assertEqual(data["query"]["trip"], "rt")
+        self.assertEqual(data["query"]["return_date"], "2026-12-09")
+        self.assertEqual(data["query"]["departure_date"], "2026-12-03")
+        self.assertEqual(len(data["offers"][0]["legs"]), 2)
+        self.assertEqual(data["offers"][0]["legs"][1]["departure"], "14:00")
+        self.assertEqual(data["offers"][0]["legs"][1]["arrival"], "16:20")
 
 
 if __name__ == "__main__":

@@ -55,8 +55,17 @@ class ModelTests(unittest.TestCase):
         data = FlightQuery("MAD", "BCN", date(2026, 9, 1), max_stops=1).to_dict()
         self.assertEqual(
             set(data),
-            {"origin", "destination", "departure_date", "max_stops", "adults", "cabin"},
+            {
+                "trip",
+                "origin",
+                "destination",
+                "departure_date",
+                "max_stops",
+                "adults",
+                "cabin",
+            },
         )
+        self.assertEqual(data["trip"], "one-way")
         self.assertNotIn("return_date", data)
         self.assertNotIn("legs", data)
 
@@ -83,6 +92,9 @@ class ModelTests(unittest.TestCase):
             RoundTrip("MAD", "OPO", date(2026, 10, 12), date(2026, 10, 9))
         with self.assertRaises(ValueError):
             RoundTrip("MAD", "MAD", date(2026, 10, 9), date(2026, 10, 12))
+        data = trip.to_dict()
+        self.assertEqual(data["trip"], "rt")
+        self.assertEqual(data["return_date"], "2026-10-12")
 
     def test_multi_city_requires_two_legs_and_non_decreasing_dates(self) -> None:
         first = FlightLeg("MAD", "BCN", date(2026, 9, 1))

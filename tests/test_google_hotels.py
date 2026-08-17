@@ -96,9 +96,7 @@ class HotelsEncodeTests(unittest.TestCase):
         self.assertEqual(inner[1][2][1][1][2], 3)
 
     def test_entire_home_asks_for_vacation_rentals(self) -> None:
-        query = HotelQuery(
-            "Prague", date(2026, 12, 4), date(2026, 12, 7), entire_home=True
-        )
+        query = HotelQuery("Prague", date(2026, 12, 4), date(2026, 12, 7), entire_home=True)
         self.assertEqual(build_hotels_inner(query)[1][0], 2)
 
     def test_non_default_adults_emit_an_extras_block(self) -> None:
@@ -148,6 +146,16 @@ class HotelsParseTests(unittest.TestCase):
         with self.assertRaises(HotelsParseMiss):
             parse_hotels_body(_wrap_wrb(["not", "hotels"]))
 
+    def test_closed_title_is_not_a_property(self) -> None:
+        body = _wrap_wrb(
+            _search_payload(
+                _hotel_record(title="closed", stay_total="€122"),
+                _hotel_record(title="Plus Prague Hostel", stay_total="€95"),
+            )
+        )
+        cards = parse_hotels_body(body)
+        self.assertEqual([card.title for card in cards], ["Plus Prague Hostel"])
+
 
 class GoogleAppliedFiltersTests(unittest.TestCase):
     def test_default_chips_and_en_url(self) -> None:
@@ -158,9 +166,7 @@ class GoogleAppliedFiltersTests(unittest.TestCase):
         self.assertIn("travel/search", applied.url)
 
     def test_entire_home_chip(self) -> None:
-        query = HotelQuery(
-            "Prague", date(2026, 12, 4), date(2026, 12, 7), entire_home=True
-        )
+        query = HotelQuery("Prague", date(2026, 12, 4), date(2026, 12, 7), entire_home=True)
         applied = build_applied_filters(query)
         self.assertIn("property_type=vacation_rentals", applied.chips)
 

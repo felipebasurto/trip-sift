@@ -1,33 +1,66 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
-  <title>HTTP or Chromium</title>
-  <desc>You or an agent pass a query. The CLI validates it. Flights sweep and Google Hotels use HTTP with no pause. Flight detail and Booking.com use local Chromium and sleep 4.5 to 6 seconds. Results are typed EUR. Cookies stay in the local state directory.</desc>
-  <rect x="1" y="1" width="1198" height="298" rx="12" fill="#F6F0E4" stroke="#E6DCC9" stroke-width="2"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img">
+  <title>How viajante runs a search</title>
+  <desc>CLI or MCP into validation, then a fork: sweep is HTTP shopping RPC with no Chromium; detail is paced local Chromium. Both land on ranked offers with raw card text. Hotel defaults and local cookie state sit on the rail below.</desc>
+  <defs>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#141C24"/>
+      <stop offset="1" stop-color="#0A1014"/>
+    </linearGradient>
+    <linearGradient id="ember" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#E06A3A"/>
+      <stop offset="1" stop-color="#E8C27A"/>
+    </linearGradient>
+  </defs>
 
-  <text x="56" y="52" fill="#172A33" font-size="16" font-weight="700">you or agent</text>
-  <path d="M186 46H238" fill="none" stroke="#D75A2B" stroke-width="3" stroke-linecap="round"/>
-  <path d="M244 46l-10 -6v12z" fill="#D75A2B"/>
-  <text x="260" y="52" fill="#172A33" font-size="16" font-weight="700">CLI validates</text>
-  <path d="M408 46H460" fill="none" stroke="#D75A2B" stroke-width="3" stroke-linecap="round"/>
-  <path d="M466 46l-10 -6v12z" fill="#D75A2B"/>
-  <text x="482" y="52" fill="#172A33" font-size="16" font-weight="700">typed EUR</text>
+  <rect width="1200" height="400" rx="24" fill="url(#night)"/>
+  <rect x="1.5" y="1.5" width="1197" height="397" rx="22.5" fill="none" stroke="#2C3944" stroke-width="1.5"/>
 
-  <path d="M56 76H1144" stroke="#E6DCC9" stroke-width="1.5"/>
+  <text x="48" y="46" fill="#E06A3A" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="700" letter-spacing="3.8">HOW A SEARCH RUNS</text>
+  <text x="48" y="82" fill="#F6F0E6" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="28" font-weight="700">One process. Two lanes. Nothing in parallel.</text>
 
-  <text x="280" y="112" fill="#52636B" font-size="14">HTTP · 0 s</text>
-  <text x="720" y="112" fill="#52636B" font-size="14">Chromium · 4.5-6 s</text>
-  <path d="M56 124H1144" stroke="#E6DCC9" stroke-width="1"/>
+  <path d="M80 168H430" stroke="#3A4852" stroke-width="3" stroke-linecap="round"/>
+  <path d="M430 168C470 168 490 128 530 128H780" stroke="#3D9B8F" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M430 168C470 168 490 208 530 208H780" stroke="#E06A3A" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M780 128C820 128 840 168 880 168H1108" stroke="#E8C27A" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M780 208C820 208 840 168 880 168" stroke="#E8C27A" stroke-width="3" fill="none" stroke-linecap="round"/>
 
-  <text x="56" y="172" fill="#52636B" font-size="14">Flights</text>
-  <text x="280" y="168" fill="#172A33" font-size="22" font-weight="700">sweep</text>
-  <text x="280" y="192" fill="#52636B" font-size="15">shopping RPC</text>
-  <text x="720" y="168" fill="#172A33" font-size="22" font-weight="700">detail</text>
-  <text x="720" y="192" fill="#52636B" font-size="15">full cards</text>
+  <g font-family="system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">
+    <circle cx="80" cy="168" r="11" fill="#0C1218" stroke="#E06A3A" stroke-width="3"/>
+    <text x="80" y="214" fill="#F6F0E6" font-size="15" font-weight="700">You / agent</text>
+    <text x="80" y="234" fill="#8B979F" font-size="12">CLI or stdio MCP</text>
 
-  <path d="M56 216H1144" stroke="#E6DCC9" stroke-width="1"/>
+    <circle cx="255" cy="168" r="11" fill="#0C1218" stroke="#9AA6AE" stroke-width="3"/>
+    <text x="255" y="214" fill="#F6F0E6" font-size="15" font-weight="700">Validate</text>
+    <text x="255" y="234" fill="#8B979F" font-size="12">IATA · dates · no Chromium yet</text>
 
-  <text x="56" y="252" fill="#52636B" font-size="14">Hotels</text>
-  <text x="280" y="248" fill="#172A33" font-size="22" font-weight="700">Google Hotels</text>
-  <text x="280" y="272" fill="#52636B" font-size="15">stay-total shortlist</text>
-  <text x="720" y="248" fill="#172A33" font-size="22" font-weight="700">Booking.com</text>
-  <text x="720" y="272" fill="#52636B" font-size="15">card evidence</text>
+    <circle cx="430" cy="168" r="11" fill="#0C1218" stroke="#9AA6AE" stroke-width="3"/>
+    <text x="430" y="214" fill="#F6F0E6" font-size="15" font-weight="700">Pick a lane</text>
+    <text x="430" y="234" fill="#8B979F" font-size="12">auto: sweep if 3+ queries</text>
+  </g>
+
+  <g font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+    <rect x="560" y="96" width="200" height="64" rx="12" fill="#12201E" stroke="#3D9B8F"/>
+    <text x="660" y="122" fill="#3D9B8F" font-size="11" font-weight="700" letter-spacing="2" text-anchor="middle">SWEEP</text>
+    <text x="660" y="144" fill="#F6F0E6" font-size="14" font-weight="650" text-anchor="middle">HTTP shopping RPC</text>
+  </g>
+  <g font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+    <rect x="560" y="176" width="200" height="64" rx="12" fill="#241812" stroke="#E06A3A"/>
+    <text x="660" y="202" fill="#E06A3A" font-size="11" font-weight="700" letter-spacing="2" text-anchor="middle">DETAIL</text>
+    <text x="660" y="224" fill="#F6F0E6" font-size="14" font-weight="650" text-anchor="middle">Chromium · 4.5 s pace</text>
+  </g>
+
+  <g font-family="system-ui, -apple-system, Segoe UI, sans-serif" text-anchor="middle">
+    <circle cx="1108" cy="168" r="11" fill="#0C1218" stroke="#E8C27A" stroke-width="3"/>
+    <text x="1108" y="214" fill="#F6F0E6" font-size="15" font-weight="700">Evidence</text>
+    <text x="1108" y="234" fill="#8B979F" font-size="12">typed + raw card</text>
+  </g>
+
+  <rect x="48" y="268" width="1104" height="96" rx="16" fill="#121920" stroke="#2C3944"/>
+  <rect x="48" y="268" width="6" height="96" rx="3" fill="url(#ember)"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+    <text x="76" y="304" fill="#E8C27A" font-size="13" font-weight="700" letter-spacing="1.4">HOTELS</text>
+    <text x="160" y="304" fill="#D5DDE2" font-size="15">Agents get Google HTTP. The CLI still opens Booking when you want the evidence path.</text>
+    <text x="76" y="338" fill="#E8C27A" font-size="13" font-weight="700" letter-spacing="1.4">STATE</text>
+    <text x="160" y="338" fill="#D5DDE2" font-size="15">Cookies stay in VIAJANTE_STATE_DIR. Sweep miss may fall back to detail once — never a second browser hammer.</text>
+  </g>
 </svg>

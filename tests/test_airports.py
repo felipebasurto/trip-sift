@@ -24,6 +24,11 @@ class AirportLookupTests(unittest.TestCase):
         rows = lookup_airports("london")
         codes = {row.iata for row in rows}
         self.assertTrue({"LHR", "LGW", "STN"} <= codes)
+        majors = [row.iata for row in rows if row.iata in {"LHR", "LGW", "STN", "LCY", "LTN"}]
+        first = [row.iata for row in rows[:5]]
+        self.assertEqual(majors, first)
+        self.assertNotEqual(rows[0].iata, "BQH")
+        self.assertLess(first.index("LHR"), 5)
 
     def test_barcelona_finds_bcn(self) -> None:
         rows = lookup_airports("barcelona")

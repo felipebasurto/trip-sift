@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import threading
 import unittest
 from datetime import date, timedelta
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from viajante.explore import DEFAULT_EXPLORE_TOP
 from viajante.mcp_handlers import (
     lookup_airports_tool,
     search_dates_tool,
@@ -41,6 +43,12 @@ class McpHandlerTests(unittest.TestCase):
         self.assertIn("iata", rows[0])
         self.assertNotIn("success", rows[0])
 
+    def test_lookup_london_ranks_passenger_airports_first(self) -> None:
+        rows = lookup_airports_tool("london", limit=8)
+        codes = [row["iata"] for row in rows]
+        self.assertLess(codes.index("LHR"), codes.index("BQH") if "BQH" in codes else len(codes))
+        self.assertTrue({"LHR", "LGW", "STN"} <= set(codes[:5]))
+
     def test_search_flights_returns_report_to_dict(self) -> None:
         fake = _report(queries=[], currency="EUR")
         with patch("viajante.mcp_handlers.search_flights", return_value=fake) as search:
@@ -50,6 +58,32 @@ class McpHandlerTests(unittest.TestCase):
         self.assertIn("queries", payload)
         self.assertNotIn("success", payload)
         self.assertNotIn("flights", payload)
+
+    def test_search_flights_accepts_cli_filters_and_round_trip_alias(self) -> None:
+        fake = _report(queries=[], currency="EUR")
+        with patch("viajante.mcp_handlers.search_flights", return_value=fake) as search:
+            search_flights_tool(
+                [f"MAD-PRG:{FUTURE}:{FUTURE_OUT}"],
+                trip="round-trip",
+                airlines="IB,I2",
+                exclude_airlines="FR",
+                depart_window="7-12",
+                max_duration=8,
+                min_layover=1,
+                max_layover=6,
+                baggage_buffer=0,
+                sort="duration",
+            )
+        kwargs = search.call_args.kwargs
+        self.assertEqual(type(search.call_args.args[0][0]).__name__, "RoundTrip")
+        self.assertEqual(kwargs["airlines"], ("IB", "I2"))
+        self.assertEqual(kwargs["exclude_airlines"], ("FR",))
+        self.assertEqual(kwargs["depart_window"], (7, 12))
+        self.assertEqual(kwargs["max_duration_hours"], 8)
+        self.assertEqual(kwargs["min_layover_hours"], 1)
+        self.assertEqual(kwargs["max_layover_hours"], 6)
+        self.assertEqual(kwargs["buffer_eur"], 0)
+        self.assertEqual(kwargs["sort"], "duration")
 
     def test_past_flight_date_fails_before_search(self) -> None:
         with patch("viajante.mcp_handlers.search_flights") as search:
@@ -71,27 +105,35 @@ class McpHandlerTests(unittest.TestCase):
                 search_dates_tool("MAD-BCN", PAST, FUTURE)
         search.assert_not_called()
 
-    def test_search_explore_returns_report_to_dict(self) -> None:
+    def test_search_explore_defaults_match_cli_and_accepts_filters(self) -> None:
         fake = _report(destinations=[])
-        with patch("viajante.mcp_handlers.search_explore", return_value=fake):
-            payload = search_explore_tool("MAD", FUTURE, days=7)
+        with patch("viajante.mcp_handlers.search_explore", return_value=fake) as search:
+            payload = search_explore_tool(
+                "MAD",
+                FUTURE,
+                adults=2,
+                cabin="business",
+                max_stops=0,
+            )
+        self.assertEqual(search.call_args.kwargs["top"], DEFAULT_EXPLORE_TOP)
+        self.assertEqual(search.call_args.kwargs["adults"], 2)
+        self.assertEqual(search.call_args.kwargs["cabin"], "business")
+        self.assertEqual(search.call_args.kwargs["max_stops"], 0)
         self.assertEqual(payload["schema_version"], 1)
         self.assertNotIn("success", payload)
 
-    def test_search_hotels_returns_report_to_dict(self) -> None:
-        fake = _report(provider="booking.com", queries=[])
+    def test_search_hotels_defaults_to_google(self) -> None:
+        fake = _report(provider="google-hotels", queries=[])
         with patch("viajante.mcp_handlers.search_hotels", return_value=fake) as search:
-            payload = search_hotels_tool("Prague", FUTURE, FUTURE_OUT, source="google")
+            payload = search_hotels_tool("Prague", FUTURE, FUTURE_OUT)
         self.assertEqual(search.call_args.kwargs["source"], "google")
-        self.assertEqual(payload["provider"], "booking.com")
+        self.assertEqual(payload["provider"], "google-hotels")
         self.assertNotIn("success", payload)
 
     def test_google_hotels_reject_min_rating_above_five(self) -> None:
         with patch("viajante.mcp_handlers.search_hotels") as search:
             with self.assertRaises(ValueError):
-                search_hotels_tool(
-                    "Prague", FUTURE, FUTURE_OUT, min_rating=8.5, source="google"
-                )
+                search_hotels_tool("Prague", FUTURE, FUTURE_OUT, min_rating=8.5, source="google")
         search.assert_not_called()
 
     def test_overlapping_search_is_rejected(self) -> None:
@@ -104,9 +146,7 @@ class McpHandlerTests(unittest.TestCase):
             return _report(queries=[])
 
         with patch("viajante.mcp_handlers.search_flights", fake):
-            worker = threading.Thread(
-                target=lambda: search_flights_tool([f"MAD-BCN:{FUTURE}"])
-            )
+            worker = threading.Thread(target=lambda: search_flights_tool([f"MAD-BCN:{FUTURE}"]))
             worker.start()
             self.assertTrue(started.wait(2))
             with self.assertRaises(ValueError) as ctx:
@@ -120,17 +160,20 @@ class McpHandlerTests(unittest.TestCase):
 
 
 class McpServerImportTests(unittest.TestCase):
-    def test_server_import_is_skipped_without_the_extra(self) -> None:
-        try:
-            import mcp  # noqa: F401
-        except ImportError:
-            from viajante import mcp_server
+    def test_build_server_imports_fastmcp(self) -> None:
+        from mcp.server.fastmcp import FastMCP
 
-            self.assertTrue(callable(mcp_server.main))
-            return
-        from viajante.mcp_server import main
+        from viajante.mcp_server import build_server, main
 
-        self.assertTrue(callable(main))
+        server = build_server()
+        self.assertIsInstance(server, FastMCP)
+        buffer = io.StringIO()
+        with patch("sys.stdout", buffer):
+            main(["--help"])
+        help_text = buffer.getvalue()
+        self.assertIn("viajante-mcp", help_text)
+        self.assertIn("search_flights", help_text)
+        self.assertIn("stdio", help_text)
 
 
 if __name__ == "__main__":

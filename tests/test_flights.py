@@ -13,6 +13,7 @@ from viajante.flights import (
     _run_search,
     classify_failure,
     is_low_cost,
+    normalize_trip_kind,
     parse_flight_plan,
     parse_route_specs,
     plan_unit_count,
@@ -401,7 +402,7 @@ class FlightsOrchestrationTests(unittest.TestCase):
                 needs_bag_verify=False,
             )
 
-        ranked = _rank_offers((offer(0, 1.0), offer(1, 5.0)), top=5)
+        ranked = _rank_offers((offer(0, 1.0), offer(1, 2.5)), top=5)
         self.assertEqual(len(ranked), 2)
 
     def test_parse_route_specs(self) -> None:
@@ -456,6 +457,15 @@ class FlightsOrchestrationTests(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             parse_flight_plan(["MAD-BCN:2026-09-01,2026-09-02"], trip="rt", max_stops=1)
+        alias = parse_flight_plan(
+            ["MAD-OPO:2026-10-09:2026-10-12"],
+            trip="round-trip",
+            max_stops=1,
+        )
+        self.assertIsInstance(alias, RoundTrip)
+        self.assertEqual(normalize_trip_kind("oneway"), "one-way")
+        self.assertEqual(normalize_trip_kind("one_way"), "one-way")
+        self.assertEqual(normalize_trip_kind("round_trip"), "rt")
 
     def test_parse_flight_plan_multi(self) -> None:
         plan = parse_flight_plan(
@@ -492,8 +502,11 @@ class FlightsOrchestrationTests(unittest.TestCase):
             report = search_flights((trip,), top=3, fetch="sweep")
         self.assertEqual(source.fetch_calls, 1)
         self.assertEqual(len(report.queries), 1)
-        self.assertEqual(report.queries[0].query.origin, "MAD")
-        self.assertEqual(report.queries[0].query.destination, "OPO")
+        query = report.queries[0].query
+        self.assertEqual(query.origin, "MAD")
+        self.assertEqual(query.destination, "OPO")
+        self.assertEqual(query.to_dict()["trip"], "rt")
+        self.assertEqual(query.to_dict()["return_date"], "2026-10-12")
         assert isinstance(report.queries[0], QuerySuccess)
         self.assertEqual(report.queries[0].offers[0].price_eur, 120.0)
 
@@ -769,6 +782,71 @@ class OfferFilterTests(unittest.TestCase):
         ranked = _rank_offers((slow, fast), top=5, sort="duration")
         self.assertEqual(ranked[0].airline, "Fast")
         self.assertEqual(ranked[1].airline, "Slow")
+
+    def test_ranked_sort_hides_overnight_hops_on_short_haul(self) -> None:
+        nonstop = FlightOffer(
+            airline="Iberia",
+            departure="09:30",
+            arrival="10:50",
+            price="€88",
+            price_eur=88.0,
+            duration="1 hr 20 min",
+            duration_hours=1 + 20 / 60,
+            stops="Nonstop",
+            stops_count=0,
+            baggage_buffer_eur=0,
+            needs_bag_verify=False,
+        )
+        overnight = FlightOffer(
+            airline="Air Europa",
+            departure="21:00",
+            arrival="18:00",
+            price="€69",
+            price_eur=69.0,
+            duration="21 hr",
+            duration_hours=21.0,
+            stops="1 stop",
+            stops_count=1,
+            layover_city="Palma",
+            layover_hours=18.0,
+            baggage_buffer_eur=0,
+            needs_bag_verify=False,
+        )
+        ranked = _rank_offers((overnight, nonstop), top=5, sort="ranked")
+        self.assertEqual([offer.airline for offer in ranked], ["Iberia"])
+        fare = _rank_offers((overnight, nonstop), top=5, sort="fare")
+        self.assertEqual(fare[0].airline, "Air Europa")
+
+    def test_ranked_sort_keeps_long_haul_one_stops(self) -> None:
+        one_stop = FlightOffer(
+            airline="Korean Air",
+            departure="10:00",
+            arrival="16:00",
+            price="€400",
+            price_eur=400.0,
+            duration="17 hr",
+            duration_hours=17.0,
+            stops="1 stop",
+            stops_count=1,
+            baggage_buffer_eur=0,
+            needs_bag_verify=False,
+        )
+        two_stop = FlightOffer(
+            airline="China Southern",
+            departure="21:00",
+            arrival="21:50",
+            price="€314",
+            price_eur=314.0,
+            duration="17 hr 50 min",
+            duration_hours=17 + 50 / 60,
+            stops="2 stops",
+            stops_count=2,
+            baggage_buffer_eur=0,
+            needs_bag_verify=False,
+        )
+        ranked = _rank_offers((one_stop, two_stop), top=5, sort="ranked")
+        self.assertEqual(len(ranked), 2)
+        self.assertEqual(ranked[0].airline, "China Southern")
 
 
 if __name__ == "__main__":

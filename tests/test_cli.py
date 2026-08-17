@@ -27,6 +27,8 @@ from viajante.models import (
     PropertyTypeEvidence,
     QueryFailure,
     QuerySuccess,
+    RawJourneyLeg,
+    RoundTrip,
     SearchError,
     SearchErrorCode,
     SearchReport,
@@ -52,7 +54,7 @@ def _offer(
     price_eur: float = 129.0,
     baggage_buffer_eur: int = 0,
     needs_bag_verify: bool = False,
-        layover_city: Optional[str] = None,
+    layover_city: Optional[str] = None,
     layover_hours: Optional[float] = None,
     booking_token: Optional[str] = None,
 ) -> FlightOffer:
@@ -356,6 +358,28 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("Lisbon", output)
         self.assertIn("18h", output)
 
+    def test_round_trip_header_and_return_clocks(self) -> None:
+        trip = RoundTrip("MAD", "PRG", date(2026, 12, 3), date(2026, 12, 9))
+        offer = _offer(departure="07:00", arrival="09:30")
+        object.__setattr__(
+            offer,
+            "legs",
+            (
+                RawJourneyLeg(departure="07:00", arrival="09:30", duration="2 hr 30 min"),
+                RawJourneyLeg(departure="14:00", arrival="16:20", duration="2 hr 20 min"),
+            ),
+        )
+        report = SearchReport(
+            searched_at=SEARCHED_AT,
+            queries=(QuerySuccess(query=trip, raw_count=1, eligible_count=1, offers=(offer,)),),
+        )
+        output = _rendered(report)
+        self.assertIn("2026-12-03 / 2026-12-09", output)
+        self.assertIn("round-trip", output)
+        self.assertIn("07:00 -> 09:30", output)
+        self.assertIn("return", output)
+        self.assertIn("14:00 -> 16:20", output)
+
     def test_filter_flags_reach_the_search(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()) as search:
             with patch("viajante.cli._print_report"):
@@ -404,6 +428,22 @@ class ReportRenderingTests(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertTrue(stderr.getvalue().startswith("error:"))
                 search.assert_not_called()
+
+    def test_trip_round_trip_alias_reaches_search(self) -> None:
+        with patch("viajante.cli.search_flights", return_value=_report()) as search:
+            with patch("viajante.cli._print_report"):
+                code = main(
+                    [
+                        "flights",
+                        "--trip",
+                        "round-trip",
+                        "MAD-OPO:2026-10-09:2026-10-12",
+                        "--fetch",
+                        "sweep",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        self.assertEqual(type(search.call_args.args[0][0]).__name__, "RoundTrip")
 
     def test_trip_rt_reaches_search_as_one_package(self) -> None:
         with patch("viajante.cli.search_flights", return_value=_report()) as search:
@@ -481,8 +521,8 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertEqual(code, 0)
         help_text = buffer.getvalue()
         self.assertIn("Examples:", help_text)
-        self.assertIn("viajante flights MAD-BCN", help_text)
-        self.assertIn("MAD-OPO:2026-10-09:2026-10-12", help_text)
+        self.assertIn("viajante flights JFK-LHR", help_text)
+        self.assertIn("JFK-NRT:2026-10-09:2026-10-20", help_text)
         self.assertIn("--trip", help_text)
         self.assertIn("--sort", help_text)
         self.assertIn("--fetch", help_text)
@@ -507,7 +547,7 @@ class ReportRenderingTests(unittest.TestCase):
         self.assertIn("explore", help_text)
         self.assertIn("airports", help_text)
         self.assertIn("Examples:", help_text)
-        self.assertIn("viajante flights MAD-BCN", help_text)
+        self.assertIn("viajante flights JFK-LHR", help_text)
 
 
 def _sample_hotel_report(
@@ -852,9 +892,7 @@ class HotelCliTests(unittest.TestCase):
     def test_google_source_reaches_search(self) -> None:
         with patch("viajante.cli.search_hotels", return_value=_sample_hotel_report()) as search:
             with patch("viajante.cli._print_hotel_report"):
-                code = main(
-                    ["hotels", "Prague", "2026-12-04", "2026-12-07", "--source", "google"]
-                )
+                code = main(["hotels", "Prague", "2026-12-04", "2026-12-07", "--source", "google"])
         self.assertEqual(code, 0)
         self.assertEqual(search.call_args.kwargs["source"], "google")
 

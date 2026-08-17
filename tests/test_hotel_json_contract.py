@@ -25,6 +25,8 @@ REPORT_KEYS = {
     "currency",
     "locale",
     "price_basis",
+    "fetch_backend",
+    "fetch_ms",
     "queries",
 }
 QUERY_KEYS = {

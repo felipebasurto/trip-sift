@@ -506,6 +506,13 @@ class ShoppingRpcTests(unittest.TestCase):
         self.assertEqual(card.arrival, "09:10")
         self.assertEqual(card.price, "€199")
         self.assertEqual(card.booking_token, "tok")
+        self.assertEqual(len(card.legs), 2)
+        self.assertEqual(card.legs[1].departure, "18:00")
+        self.assertEqual(card.legs[1].arrival, "19:20")
+        offer = _normalize_offer(card, max_stops=1)
+        assert offer is not None
+        self.assertEqual(len(offer.legs), 2)
+        self.assertEqual(offer.legs[1].departure, "18:00")
 
     def test_compact_body_yields_raw_card_fields(self) -> None:
         body = _compact_body(
@@ -787,6 +794,164 @@ def _iberia_late_nonstop() -> list[object]:
     )
 
 
+def _iberia_fco_late_evening() -> list[object]:
+    day = [2026, 9, 15]
+    next_day = [2026, 9, 16]
+    legs = [
+        _live_leg(
+            origin="MAD",
+            origin_name="Adolfo Suárez Madrid-Barajas Airport",
+            dest="FCO",
+            dest_name="Leonardo da Vinci International Airport",
+            dep=[21, 50],
+            arr=[24, 5],
+            minutes=135,
+            dep_date=day,
+            arr_date=next_day,
+            code="IB",
+            number="3234",
+            airline="Iberia",
+            arr_day_offset=1,
+        )
+    ]
+    return _priced(
+        _live_flight(
+            code="IB",
+            airline="Iberia",
+            legs=legs,
+            origin="MAD",
+            dest="FCO",
+            dep_date=day,
+            dep=[21, 50],
+            arr_date=next_day,
+            arr=[24, 5],
+            minutes=135,
+        ),
+        79,
+    )
+
+
+def _ryanair_fco_late_evening() -> list[object]:
+    day = [2026, 9, 15]
+    next_day = [2026, 9, 16]
+    legs = [
+        _live_leg(
+            origin="MAD",
+            origin_name="Adolfo Suárez Madrid-Barajas Airport",
+            dest="FCO",
+            dest_name="Leonardo da Vinci International Airport",
+            dep=[22, 15],
+            arr=[24, 30],
+            minutes=135,
+            dep_date=day,
+            arr_date=next_day,
+            code="FR",
+            number="5994",
+            airline="Ryanair",
+            arr_day_offset=1,
+        )
+    ]
+    flight = _live_flight(
+        code="FR",
+        airline="Ryanair",
+        legs=legs,
+        origin="MAD",
+        dest="FCO",
+        dep_date=day,
+        dep=[22, 15],
+        arr_date=next_day,
+        arr=next_day,
+        minutes=135,
+    )
+    return _priced(flight, 41)
+
+
+def _two_stop_mad_icn() -> list[object]:
+    legs = [
+        _live_leg(
+            origin="MAD",
+            origin_name="Adolfo Suárez Madrid-Barajas Airport",
+            dest="HEL",
+            dest_name="Helsinki Airport",
+            dep=[11, 0],
+            arr=[16, 20],
+            minutes=260,
+            dep_date=[2026, 9, 22],
+            arr_date=[2026, 9, 22],
+            code="AY",
+            number="1662",
+            airline="Finnair",
+        ),
+        _live_leg(
+            origin="HEL",
+            origin_name="Helsinki Airport",
+            dest="NRT",
+            dest_name="Narita International Airport",
+            dep=[17, 50],
+            arr=[10, 15],
+            minutes=565,
+            dep_date=[2026, 9, 22],
+            arr_date=[2026, 9, 23],
+            code="AY",
+            number="61",
+            airline="Finnair",
+            arr_day_offset=1,
+        ),
+        _live_leg(
+            origin="NRT",
+            origin_name="Narita International Airport",
+            dest="ICN",
+            dest_name="Incheon International Airport",
+            dep=[12, 0],
+            arr=[14, 30],
+            minutes=150,
+            dep_date=[2026, 9, 23],
+            arr_date=[2026, 9, 23],
+            code="JL",
+            number="5237",
+            airline="Japan Airlines",
+        ),
+    ]
+    return _priced(
+        _live_flight(
+            code="AY",
+            airline="Finnair",
+            legs=legs,
+            origin="MAD",
+            dest="ICN",
+            dep_date=[2026, 9, 22],
+            dep=[11, 0],
+            arr_date=[2026, 9, 23],
+            arr=[14, 30],
+            minutes=1290,
+            stops=2,
+            layover=[
+                [
+                    90,
+                    "HEL",
+                    "HEL",
+                    None,
+                    "Helsinki Airport",
+                    "Helsinki",
+                    "Helsinki Airport",
+                    "Helsinki",
+                ],
+                [
+                    105,
+                    "NRT",
+                    "NRT",
+                    None,
+                    "Narita International Airport",
+                    "Tokyo",
+                    "Narita International Airport",
+                    "Tokyo",
+                ],
+            ],
+        ),
+        520,
+    )
+
+
 def _iberia_hour_only_arrival() -> list[object]:
     day = [2026, 10, 9]
     legs = [
@@ -1013,6 +1178,30 @@ class LiveShapedCompactTests(unittest.TestCase):
         self.assertEqual(card.departure, "23:10")
         self.assertEqual(card.arrival, "00:30")
         self.assertEqual(card.stops, "Nonstop")
+
+    def test_late_evening_mad_fco_arrivals_are_not_null(self) -> None:
+        iberia = parse_shopping_body(_compact_body(_iberia_fco_late_evening()))[0]
+        self.assertEqual(iberia.airline, "Iberia")
+        self.assertEqual(iberia.departure, "21:50")
+        self.assertEqual(iberia.arrival, "00:05")
+        ryanair = parse_shopping_body(_compact_body(_ryanair_fco_late_evening()))[0]
+        self.assertEqual(ryanair.airline, "Ryanair")
+        self.assertEqual(ryanair.departure, "22:15")
+        self.assertEqual(ryanair.arrival, "00:30")
+
+    def test_two_stop_card_keeps_both_layover_cities(self) -> None:
+        card = parse_shopping_body(_compact_body(_two_stop_mad_icn()))[0]
+        self.assertEqual(card.stops, "2 stops")
+        offer = _normalize_offer(card, max_stops=2)
+        assert offer is not None
+        self.assertEqual(offer.stops_count, 2)
+        cities = [row.city for row in offer.legs[0].layovers]
+        self.assertEqual(cities, ["Helsinki", "Tokyo"])
+        data = offer.to_dict()
+        self.assertIsNone(data["layover_city"])
+        self.assertEqual(
+            [row["city"] for row in data["legs"][0]["layovers"]], ["Helsinki", "Tokyo"]
+        )
 
     def test_longhaul_group_starting_with_hour_only_departure_parses(self) -> None:
         body = _compact_body(_longhaul_cz_hour_only_dep(), other=(_longhaul_etihad(),))

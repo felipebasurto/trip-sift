@@ -27,6 +27,7 @@ from viajante.explore import (
 from viajante.flights import (
     DEFAULT_BAGGAGE_BUFFER_EUR,
     FlightSort,
+    normalize_trip_kind,
     parse_airline_codes,
     parse_depart_window,
     parse_flight_plan,
@@ -56,45 +57,46 @@ from viajante.models import (
 
 FLIGHTS_EXAMPLES = """\
 Examples:
-  viajante flights MAD-BCN:2026-09-01
-  viajante flights MAD-OPO:2026-10-09:2026-10-12
-  viajante flights MAD-LHR:2026-09-25 LHR-MAD:2026-09-27 --max-stops 0
-  viajante flights MAD-BCN:2026-09-01,2026-09-02 --top 5 --sort fare --save results/search.json
-  viajante flights MAD-BCN:2026-09-01 --fetch sweep
-  viajante flights MAD-OPO:2026-10-09 --fetch sweep --max-layover 8
-  viajante flights MAD-BCN:2026-09-01 --fetch detail
-  viajante flights MAD-BCN:2026-09-01 --exclude-airlines UX --depart-window 7-12 --fetch sweep
-  viajante flights MAD-BCN:2026-09-01 --airlines IB,I2 --sort duration
-  viajante flights MAD-BCN:2026-09-01 --max-duration 4 --min-layover 1 --max-layover 8
+  viajante flights JFK-LHR:2026-09-15
+  viajante flights JFK-NRT:2026-10-09:2026-10-20
+  viajante flights --trip rt LAX-NRT:2026-10-12:2026-10-26 --fetch sweep
+  viajante flights SYD-AKL:2026-11-03 AKL-SYD:2026-11-10 --max-stops 0
+  viajante flights JFK-LHR:2026-09-15,2026-09-16 --top 5 --sort fare --save results/search.json
+  viajante flights JFK-LHR:2026-09-15 --fetch sweep
+  viajante flights LAX-NRT:2026-10-12 --fetch sweep --max-layover 8
+  viajante flights JFK-LHR:2026-09-15 --fetch detail
+  viajante flights JFK-LHR:2026-09-15 --exclude-airlines F9,NK --depart-window 7-12 --fetch sweep
+  viajante flights JFK-LHR:2026-09-15 --airlines BA,AA --sort duration
+  viajante flights JFK-LHR:2026-09-15 --max-duration 16 --min-layover 1 --max-layover 8
 """
 
 DATES_EXAMPLES = """\
 Examples:
-  viajante dates MAD-LHR --from 2026-09-01 --to 2026-09-30
-  viajante dates MAD-BCN --from 2026-09-01 --to 2026-09-14 --fetch sweep
+  viajante dates LAX-NRT --from 2026-10-01 --to 2026-10-31
+  viajante dates JFK-LHR --from 2026-09-01 --to 2026-09-14 --fetch sweep
 """
 
 EXPLORE_EXAMPLES = """\
 Examples:
-  viajante explore MAD --from 2026-09-01 --days 7
-  viajante explore MAD --month 2026-09
+  viajante explore JFK --from 2026-09-15 --days 7
+  viajante explore NRT --month 2026-10
 """
 
 AIRPORTS_EXAMPLES = """\
 Examples:
+  viajante airports tokyo
   viajante airports london
-  viajante airports MAD
-  viajante airports barcelona
+  viajante airports JFK
 """
 
 HOTELS_EXAMPLES = """\
 Examples:
-  viajante hotels Prague 2026-12-04 2026-12-07
-  viajante hotels "Prague, Czech Republic" 2026-12-04 2026-12-10 --top 5
-  viajante hotels Prague 2026-12-04 2026-12-07 --entire-home --min-rating 8.5
-  viajante hotels Prague 2026-12-04 2026-12-07 --compare-cancellation
-  viajante hotels Prague 2026-12-04 2026-12-07 --save results/hotels.json
-  viajante hotels Prague 2026-12-04 2026-12-07 --source google --top 3
+  viajante hotels Tokyo 2026-10-12 2026-10-16
+  viajante hotels "Mexico City" 2026-12-04 2026-12-10 --top 5
+  viajante hotels Tokyo 2026-10-12 2026-10-16 --entire-home --min-rating 8.5
+  viajante hotels Tokyo 2026-10-12 2026-10-16 --compare-cancellation
+  viajante hotels Tokyo 2026-10-12 2026-10-16 --save results/hotels.json
+  viajante hotels Tokyo 2026-10-12 2026-10-16 --source google --top 3
 """
 
 
@@ -273,15 +275,40 @@ def _print_best_pairs(report, sort: FlightSort) -> None:
         index += 2
 
 
+def _query_header(query: Trip) -> str:
+    if isinstance(query, RoundTrip):
+        return (
+            f"\n=== {query.origin} -> {query.destination}  "
+            f"{query.departure_date.isoformat()} / {query.return_date.isoformat()} "
+            f"(round-trip, max {query.max_stops} stop(s)) ==="
+        )
+    if isinstance(query, MultiCity):
+        path = " / ".join(
+            f"{leg.origin}->{leg.destination} {leg.departure_date.isoformat()}"
+            for leg in query.legs
+        )
+        return f"\n=== {path} (multi-city) ==="
+    return (
+        f"\n=== {query.origin} -> {query.destination}  "
+        f"{query.departure_date.isoformat()} (max {query.max_stops} stop(s)) ==="
+    )
+
+
+def _print_offer_legs(offer: FlightOffer) -> None:
+    if len(offer.legs) < 2:
+        return
+    for index, leg in enumerate(offer.legs[1:], start=2):
+        times = f"{_format_clock(leg.departure)} -> {_format_clock(leg.arrival)}"
+        label = "return" if len(offer.legs) == 2 else f"leg {index}"
+        print(
+            f"    {label}  {leg.duration or '?':<12} {times:<18} {_format_airline(offer.airline)}"
+        )
+
+
 def _print_report(report, *, sort: FlightSort = "ranked") -> None:
     any_success = False
     for result in report.queries:
-        query = result.query
-        header = (
-            f"\n=== {query.origin} -> {query.destination}  "
-            f"{query.departure_date.isoformat()} (max {query.max_stops} stop(s)) ==="
-        )
-        print(header)
+        print(_query_header(result.query))
         if isinstance(result, QuerySuccess):
             any_success = True
             if not result.offers:
@@ -293,6 +320,7 @@ def _print_report(report, *, sort: FlightSort = "ranked") -> None:
                     f"{_format_stops_with_layover(offer):<16} {times:<18} "
                     f"{_format_airline(offer.airline)}"
                 )
+                _print_offer_legs(offer)
                 if offer.booking_token:
                     print(f"    {build_itinerary_url(offer.booking_token)}")
             print(
@@ -491,8 +519,7 @@ def _print_hotel_report(report) -> None:
     if any_success:
         site = "Google Hotels" if report.provider == "google-hotels" else "Booking.com"
         print(
-            f"\nVerify the final total stay price and cancellation terms on {site} "
-            "before booking."
+            f"\nVerify the final total stay price and cancellation terms on {site} before booking."
         )
 
 
@@ -716,7 +743,10 @@ def _run_airports(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Search Google Flights and Booking.com locally (prices in EUR)",
+        description=(
+            "Local Google Flights and hotel search. Any IATA pair; quotes in EUR. "
+            "One-way, packaged round-trip, or multi-city; Booking or Google Hotels."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=FLIGHTS_EXAMPLES,
     )
@@ -724,7 +754,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     flights = sub.add_parser(
         "flights",
-        help="One-way Google Flights search (EUR prices)",
+        help="Google Flights search (one-way, packaged RT, or multi-city; quotes in EUR)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=FLIGHTS_EXAMPLES,
     )
@@ -743,10 +773,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     flights.add_argument(
         "--trip",
         default="one-way",
-        choices=["one-way", "rt", "multi"],
+        type=normalize_trip_kind,
+        metavar="{one-way,rt,multi}",
         help=(
-            "Trip kind (default one-way). rt and multi POST one package. "
-            "Sugar without --trip stays two one-ways."
+            "Trip kind (default one-way). rt/round-trip and multi POST one package. "
+            "Sugar without --trip stays two one-ways. "
+            "Aliases: oneway, one_way, round-trip, round_trip."
         ),
     )
     flights.add_argument(
@@ -846,7 +878,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     hotels = sub.add_parser(
         "hotels",
-        help="Booking.com hotel search (EUR, es, total-stay prices)",
+        help="Hotel search (total-stay, quoted in EUR). Default Booking; --source google is HTTP.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=HOTELS_EXAMPLES,
     )
@@ -877,7 +909,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=None,
         dest="min_rating",
         metavar="SCORE",
-        help="Minimum review score (0-10)",
+        help="Minimum review score (Booking 0-10; Google Hotels 0-5)",
     )
     hotels.add_argument(
         "--entire-home",
@@ -893,7 +925,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--source",
         default="booking",
         choices=["booking", "google"],
-        help="booking is the Playwright evidence path (default). google is the HTTP shortlist.",
+        help=(
+            "booking is the Playwright evidence path (CLI default). "
+            "google is the HTTP shortlist (MCP default)."
+        ),
     )
     hotels.add_argument(
         "--compare-cancellation",
@@ -912,7 +947,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     dates = sub.add_parser(
         "dates",
-        help="Cheapest fare per day for one route (EUR, compact table)",
+        help="Cheapest fare per day for one route (compact table, quoted in EUR)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=DATES_EXAMPLES,
     )
@@ -963,7 +998,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     explore = sub.add_parser(
         "explore",
-        help="Cheap destinations from one origin (EUR shortlist)",
+        help="Cheap destinations from one origin (quoted in EUR)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=EXPLORE_EXAMPLES,
     )

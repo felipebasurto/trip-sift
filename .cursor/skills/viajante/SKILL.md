@@ -5,7 +5,7 @@ description: Search Google Flights and Booking.com locally for trip planning wit
 
 # viajante
 
-Local flight and hotel search. Prices in EUR. Flights are one-way; defaults are one adult and economy. Hotel prices are totals for the full stay.
+Local flight and hotel search. Prices in EUR. Flights default to one-way, one adult, economy; `--trip rt` packages a round-trip. Hotel prices are totals for the full stay. CLI hotels default to Booking; MCP hotels default to Google.
 
 ## Invocation
 
@@ -20,14 +20,16 @@ After `uv sync` and `uv run playwright install chromium`, the entry point is ava
 ## Commands
 
 ```bash
-uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare,duration}] [--airlines CODES] [--exclude-airlines CODES] [--depart-window START-END] [--fetch {auto,sweep,detail}] [--max-layover HOURS] [--min-layover HOURS] [--max-duration HOURS] [--save FILE]
+uv run viajante flights ORIGIN-DEST:YYYY-MM-DD[,YYYY-MM-DD...] [--trip {one-way,rt,multi}] [--max-stops {0,1,2}] [--adults N] [--cabin CABIN] [--top N] [--baggage-buffer EUR] [--sort {ranked,fare,duration}] [--airlines CODES] [--exclude-airlines CODES] [--depart-window START-END] [--fetch {auto,sweep,detail}] [--max-layover HOURS] [--min-layover HOURS] [--max-duration HOURS] [--save FILE]
 uv run viajante dates ORIGIN-DEST --from YYYY-MM-DD --to YYYY-MM-DD [--max-stops {0,1}] [--adults N] [--cabin CABIN] [--fetch {auto,sweep,detail}] [--save FILE]
-uv run viajante explore ORIGIN --from YYYY-MM-DD [--days N] [--month YYYY-MM] [--top N] [--save FILE]
+uv run viajante explore ORIGIN --from YYYY-MM-DD [--days N] [--month YYYY-MM] [--top N] [--adults N] [--cabin CABIN] [--max-stops {0,1}] [--save FILE]
 uv run viajante airports QUERY
-uv run viajante hotels LOCATION CHECK_IN CHECK_OUT [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
+uv run viajante hotels LOCATION CHECK_IN CHECK_OUT [--source {booking,google}] [--adults N] [--rooms N] [--top N] [--min-rating SCORE] [--entire-home] [--allow-non-refundable] [--compare-cancellation] [--save FILE]
 ```
 
-Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one route. `MAD-OPO:2026-10-09:2026-10-12` is sugar for outbound + return as two one-way queries. You can still pass a return leg as a second route.
+Route grammar: `MAD-BCN:2026-09-01`, or several dates comma-separated on one route. `MAD-OPO:2026-10-09:2026-10-12` without `--trip` is sugar for outbound + return as two one-way queries. `--trip rt` POSTs one package. You can still pass a return leg as a second route.
+
+MCP (stdio, no auth): `uv sync --extra mcp` then `viajante-mcp`. Tools match the CLI an agent needs: flight filters, explore `month`/`adults`/`cabin`/`max_stops`, hotels `source=google` by default. Keep the one-search process lock.
 
 ## Smoke
 
@@ -128,7 +130,7 @@ Read `queries[].status`. `"ok"` with empty `offers` is not a fetch failure. Hote
 - Free cancellation is on by default; use `--allow-non-refundable` only after explicit user consent.
 - `--compare-cancellation` runs two sequential Booking searches (with the free-cancellation chip, then without) and prints a joined price table. Do not combine it with `--allow-non-refundable`. Do not parallelize. If one of the two queries fails, skip the join.
 - `--adults` defaults to 2. Override for solo travelers.
-- `--min-rating` is applied locally after the scrape. It is not a Booking chip.
+- `--min-rating` is applied locally after the scrape. Booking is 0–10; Google Hotels is 0–5. It is not a Booking chip.
 - Treat cancellation, `lodging_kind`, and bed/bedroom/bathroom counts as observed evidence. Do not present unknown card evidence as confirmed. Do not guess “hotel” from the property title.
 - Remind the user to verify the final total and cancellation terms on Booking.com before booking.
 

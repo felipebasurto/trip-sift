@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "viajante"
 version = "0.1.0"
-description = "Local Google Flights and Booking.com search via Playwright (EUR; English flight rendering, Spanish hotel parsing)"
+description = "Local Google Flights and hotel search from any IATA pair (no API keys; quotes in EUR)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -23,7 +23,7 @@ Repository = "https://github.com/felipebasurto/viajante"
 Issues = "https://github.com/felipebasurto/viajante/issues"
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.6.0"]
+mcp = ["mcp>=1.6,<2"]
 
 [project.scripts]
 viajante = "viajante.cli:main"
@@ -45,6 +45,7 @@ select = ["E", "F", "I", "B"]
 
 [dependency-groups]
 dev = [
+    "mcp>=1.6,<2",
     "pre-commit>=4.3.0",
     "ruff==0.15.12",
 ]

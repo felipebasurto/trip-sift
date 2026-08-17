@@ -65,9 +65,7 @@ class GoogleHotelsSource:
     ) -> HotelPage:
         del applied
         client = self._ensure_client()
-        url, body = build_hotels_request(
-            query, html_lang=self._html_lang, currency=self._currency
-        )
+        url, body = build_hotels_request(query, html_lang=self._html_lang, currency=self._currency)
         try:
             response = client.post(
                 url, data=body, headers=HOTELS_POST_HEADERS, timeout=self._timeout
