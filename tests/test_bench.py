@@ -82,6 +82,18 @@ class BenchCorpusTests(unittest.TestCase):
         self.assertEqual(DEFAULT_TOP, REQUIRED_FLIGHT_TOP)
         self.assertEqual(DEFAULT_BAGGAGE_BUFFER_EUR, REQUIRED_BAGGAGE_BUFFER_EUR)
 
+    def test_committed_baseline_has_a_real_score(self) -> None:
+        path = repo_root() / "bench-baseline.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self.assertIsInstance(data["git_sha"], str)
+        self.assertGreaterEqual(len(data["git_sha"]), 7)
+        self.assertIsInstance(data["tests_ms"], int)
+        self.assertIsInstance(data["parse_ms"], int)
+        self.assertIsInstance(data["score_ms"], int)
+        self.assertGreater(data["tests_ms"], 0)
+        self.assertGreaterEqual(data["parse_ms"], 0)
+        self.assertEqual(data["score_ms"], data["tests_ms"] + data["parse_ms"])
+
 
 class BenchReportTests(unittest.TestCase):
     def test_ok_block_is_machine_readable(self) -> None:

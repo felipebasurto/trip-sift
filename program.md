@@ -35,7 +35,10 @@ offline wall time. Lower is better.
    ```
 
 6. **Keep** the change only if `gate: ok` **and** `score_ms` is **strictly
-   lower** than `score_ms` in `bench-baseline.json`.
+   lower** than `score_ms` in `bench-baseline.json`. `score_ms` is wall
+   time on this machine. A few tens of ms can be noise; if the delta is
+   that small, run the bench once more and keep only if both runs are
+   strictly lower. Do not average runs into a fake score.
 7. **Revert** the experiment files if the gate fails or `score_ms` is
    worse or equal. Do not revert unrelated work on the branch.
 8. Open or update a pull request. **Never merge to main.** A human merges.
