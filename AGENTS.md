@@ -1,5 +1,11 @@
 # Agent notes for viajante
 
+## Cursor Cloud specific instructions
+
+- Tooling is `uv` (installed at `~/.local/bin`, on PATH via `.bashrc`). The startup update script runs `uv sync --extra mcp`, which installs runtime deps, the `dev` group (ruff, pre-commit), and the `mcp` extra into `.venv`. Run project commands with `uv run --no-sync ...` (matches CI) so a session does not re-resolve.
+- Playwright Chromium is preinstalled (update script runs `uv run --no-sync playwright install chromium`) into `~/.cache/ms-playwright`. It is only needed for `--fetch detail` flights and `--source booking` hotels; the default sweep / `dates` / `explore` / `--source google` / `airports` paths never launch a browser. See README "Install".
+- Lint/test are fully offline (see README "Tests"). Live commands (`flights` sweep/detail, `dates`, `explore`, `hotels`) reach Google/Booking over the network, which works from this environment. These sites can rate-limit or serve challenge pages; after repeated `blocked`/`rejected`/`fetch_failed` results, stop and retry a small query set later rather than hammering. Use future dates — `FlightQuery` rejects past departure dates.
+
 ## Where to edit
 
 - `tfs` bytes, cabin, or adults in the Google Flights URL: `src/viajante/tfs.py`
